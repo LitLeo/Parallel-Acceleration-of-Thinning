@@ -194,7 +194,7 @@ static __global__ void _thinMatSubFirKer(ImageCuda outimg,
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
     int dstc = blockIdx.x * blockDim.x + threadIdx.x;
-    int dstr = (blockIdx.y * blockDim.y + threadIdx.y) * 4;
+    int dstr = blockIdx.y * blockDim.y + threadIdx.y;
 
     // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
     // 另一方面防止由于段错误导致程序崩溃。
@@ -257,65 +257,6 @@ static __global__ void _thinMatSubFirKer(ImageCuda outimg,
         
         }
     }
-
-    // 处理剩下的三个像素点。
-    for (int i = 0; i < 3; ++i) {
-        // 越界判断
-        if (++dstr >= tempimg.imgMeta.height - 1) 
-            return ;
-
-        curpos += tempimg.pitchBytes;
-
-        // 获取当前像素点在图像中的绝对位置。
-        outptr = tempimg.imgMeta.imgData + curpos ;
-
-        // 如果目标像素点的像素值为低像素, 则不进行细化处理。
-        if (*outptr != lowpixel) {
-            // 根据目标像素点 8 邻域的特性获取其在 PATTERN 表内的索引。
-            int index = 0;
-
-            // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
-            // 防止下面细化处理时重复计算。
-            int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
-            int posColumn2 = posColumn1 + tempimg.pitchBytes;
-            int posColumn3 = posColumn2 + tempimg.pitchBytes;
-
-            // 根据算法描述，对 8 邻域内的像素点赋予权重，对 8 邻域内的像素点进行
-            // 遍历，将邻域内像素值为 highpixel 的像素点的权重值相加，即获得 8 邻 
-            // 域内像素特性在 PATTERN 表内对应的索引值。以此获得目标像素在 PATTERN 
-            // 表中对应的值。
-            if (tempimg.imgMeta.imgData[dstc - 1 + posColumn1] != lowpixel) 
-                index += 1;
-            if (tempimg.imgMeta.imgData[dstc - 1 + posColumn2] != lowpixel) 
-                index += 2;
-            if (tempimg.imgMeta.imgData[dstc - 1 + posColumn3] != lowpixel) 
-                index += 4;
-            if (tempimg.imgMeta.imgData[dstc + posColumn1] != lowpixel) 
-                index += 8;
-            if (tempimg.imgMeta.imgData[dstc + posColumn2] != lowpixel) 
-                index += 16;
-            if (tempimg.imgMeta.imgData[dstc + posColumn3] != lowpixel) 
-                index += 32;
-            if (tempimg.imgMeta.imgData[dstc + 1 + posColumn1] != lowpixel) 
-                index += 64;
-            if (tempimg.imgMeta.imgData[dstc + 1 + posColumn2] != lowpixel) 
-                index += 128;
-            if (tempimg.imgMeta.imgData[dstc + 1 + posColumn3] != lowpixel) 
-                index += 256;
-
-            // 获得索引值在 PATTERN 表 1 、2 、3 内对应的值
-            unsigned char replacedPix1 = lutthin[index];
-            unsigned char replacedPix2 = lutthin[index + 512];
-            unsigned char replacedPix3 = lutthin[index + 1024];
-            
-            // 根据获取的值得出初步细化结果，将结果中存储到暂存图像中。
-            if (replacedPix1 == 1 && replacedPix2 == 1 && replacedPix3 == 1) {
-                outimg.imgMeta.imgData[curpos] = lowpixel;
-                *devchangecount = 1;
-            
-            }
-        }
-    }
 }
 
 // Kernel 函数：_thinMatSubSecKer（实现 PATTERN 表删除算法的第二步操作）
@@ -327,7 +268,7 @@ static __global__ void _thinMatSubSecKer(ImageCuda tempimg,
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量（其中，
     // c 表示 column， r 表示 row）。
     int dstc = blockIdx.x * blockDim.x + threadIdx.x;
-    int dstr = (blockIdx.y * blockDim.y + threadIdx.y) * 4;
+    int dstr = blockIdx.y * blockDim.y + threadIdx.y;
 
     // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
     // 另一方面防止由于段错误导致程序崩溃。
@@ -391,66 +332,6 @@ static __global__ void _thinMatSubSecKer(ImageCuda tempimg,
             *devchangecount = 1;
         }
     }    
-
-    // 处理剩下的三个像素点。
-    for (int i = 0; i < 3; ++i) {
-        // 越界判断
-        if (++dstr >= tempimg.imgMeta.height - 1) 
-            return ;
-        curpos += outimg.pitchBytes;
-
-        // 获取当前像素点在图像中的绝对位置。
-        temptr = tempimg.imgMeta.imgData + curpos;
-
-
-        // 如果暂存图像内目标像素点的像素值为 lowpixel , 则不进行第二步细化处理
-        if (*temptr != lowpixel) {
-            // 根据暂存图像内目标像素点 8 邻域的特性获取其在 PATTERN 表内的索引。
-            int index = 0;
-
-            // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
-            // 防止下面细化处理时重复计算。
-            int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
-            int posColumn2 = posColumn1 + tempimg.pitchBytes;
-            int posColumn3 = posColumn2 + tempimg.pitchBytes;
-
-            // 根据算法描述，对 8 邻域内的像素点赋予权重，对 8 邻域内的像素点进行
-            // 遍历，将邻域内像素值为 highpixel 的像素点的权重值相加，即获得 8 
-            // 邻域内像素特性在 PATTERN 表内对应的索引值。以此获得目标像素在 
-            // PATTERN 表中对应的值。
-            if (tempimg.imgMeta.imgData[dstc - 1 + posColumn1] != lowpixel) 
-                index += 1;
-            if (tempimg.imgMeta.imgData[dstc - 1 + posColumn2] != lowpixel) 
-                index += 2;
-            if (tempimg.imgMeta.imgData[dstc - 1 + posColumn3] != lowpixel) 
-                index += 4;
-            if (tempimg.imgMeta.imgData[dstc + posColumn1] != lowpixel) 
-                index += 8;
-            if (tempimg.imgMeta.imgData[dstc + posColumn2] != lowpixel) 
-                index += 16;
-            if (tempimg.imgMeta.imgData[dstc + posColumn3] != lowpixel) 
-                index += 32;
-            if (tempimg.imgMeta.imgData[dstc + 1 + posColumn1] != lowpixel) 
-                index += 64;
-            if (tempimg.imgMeta.imgData[dstc + 1 + posColumn2] != lowpixel) 
-                index += 128;
-            if (tempimg.imgMeta.imgData[dstc + 1 + posColumn3] != lowpixel) 
-                index += 256;
-
-            // 获得索引值在 PATTERN 表 1、 2 、4 内对应的值
-            unsigned char replacedPix1 = lutthin[index];
-            unsigned char replacedPix2 = lutthin[index + 512];
-            unsigned char replacedPix4 = lutthin[index + 1536];
-
-            // 根据从 PATTERN 表获取的值判断目标点是否删除。
-            if (replacedPix1 == 1 && replacedPix2 == 1 && replacedPix4 == 1) {
-                 // 删除目标像素点。 
-                outimg.imgMeta.imgData[curpos] = lowpixel;
-                *devchangecount = 1;
-            }
-        } 
-    }
-
 }
 
 // 宏：FAIL_THIN_IMAGE_FREE
@@ -530,7 +411,7 @@ __host__ int Thinning_gpu_pt_con::thinPatternCon (Image *inimg, Image *outimg)
     blocksize.x = DEF_BLOCK_X;
     blocksize.y = DEF_BLOCK_Y;
     gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
-    gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y * 4 - 1) / (blocksize.y * 4);
+    gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y - 1) / blocksize.y;
 
     // 赋值为 1，以便开始第一次迭代。
     changeCount = 1;
