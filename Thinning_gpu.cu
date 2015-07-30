@@ -16,7 +16,7 @@ using namespace std;
      // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
      // column，r 表示 row ）。
      int dstc = blockIdx.x * blockDim.x + threadIdx.x;
-     int dstr = (blockIdx.y * blockDim.y + threadIdx.y) * 4;
+     int dstr = blockIdx.y * blockDim.y + threadIdx.y;
 
      // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
      // 另一方面防止由于段错误导致程序崩溃。
@@ -64,49 +64,6 @@ using namespace std;
              *devchangecount = 1;
          } 
      }
-
-          // 处理剩下的3个点
-     for (int i = 0; i < 3; ++i) {
-        if (++dstr > tempimg.imgMeta.height - 1)
-            return ;
-        curpos += tempimg.pitchBytes;  
-
-        // 获取当前像素点在图像中的绝对位置。
-         outptr = tempimg.imgMeta.imgData + curpos;
-
-         // 如果目标像素点的像素值为低像素, 则不进行细化处理。
-         if (*outptr != lowpixel) {
-             // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
-             // 防止下面细化处理时重复计算。
-             int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
-             int posColumn2 = posColumn1 + tempimg.pitchBytes;
-             int posColumn3 = posColumn2 + tempimg.pitchBytes;
-        
-             unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1] == highpixel;
-             unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1] == highpixel;
-             unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2] == highpixel;
-             unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3] == highpixel;
-             unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3] == highpixel;
-             unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3] == highpixel;
-             unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2] == highpixel;
-             unsigned char p9 = tempimg.imgMeta.imgData[dstc-1 + posColumn1] == highpixel;
-        
-        
-             int C  = (!p2 & (p3 | p4)) + (!p4 & (p5 | p6)) +
-                      (!p6 & (p7 | p8)) + (!p8 & (p9 | p2));
-             int N1 = (p9 | p2) + (p3 | p4) + (p5 | p6) + (p7 | p8);
-             int N2 = (p2 | p3) + (p4 | p5) + (p6 | p7) + (p8 | p9);
-             int N  = N1 < N2 ? N1 : N2;
-             int m  = ((p6 | p7 | !p9) & p8);
-
-             if (C == 1 && (N >= 2 && N <= 3) & m == 0) {
-                 outimg.imgMeta.imgData[curpos] = lowpixel;
-                 // 记录删除点数的 devchangecount 值加 1 。
-                 //atomicAdd(devchangecount, 1);
-                 *devchangecount = 1;
-             }
-         }
-     }
  }
 
  __global__ void _thinGuoHallIter2Ker(ImageCuda tempimg, ImageCuda outimg, 
@@ -116,7 +73,7 @@ using namespace std;
      // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
      // column，r 表示 row ）。
      int dstc = blockIdx.x * blockDim.x + threadIdx.x;
-     int dstr = (blockIdx.y * blockDim.y + threadIdx.y) * 4;
+     int dstr = blockIdx.y * blockDim.y + threadIdx.y;
 
      // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
      // 另一方面防止由于段错误导致程序崩溃。
@@ -163,49 +120,6 @@ using namespace std;
              // 记录删除点数的 devchangecount 值加 1 。
              //atomicAdd(devchangecount, 1);
              *devchangecount = 1;
-         }
-     }
-
-     // 处理剩下的3个点
-     for (int i = 0; i < 3; ++i) {
-        if (++dstr > tempimg.imgMeta.height - 1)
-            return ;
-        curpos += tempimg.pitchBytes;  
-
-        // 获取当前像素点在图像中的绝对位置。
-         outptr = tempimg.imgMeta.imgData + curpos;
-
-         // 如果目标像素点的像素值为低像素, 则不进行细化处理。
-         if (*outptr != lowpixel) {
-             // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
-             // 防止下面细化处理时重复计算。
-             int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
-             int posColumn2 = posColumn1 + tempimg.pitchBytes;
-             int posColumn3 = posColumn2 + tempimg.pitchBytes;
-        
-             unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1] == highpixel;
-             unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1] == highpixel;
-             unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2] == highpixel;
-             unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3] == highpixel;
-             unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3] == highpixel;
-             unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3] == highpixel;
-             unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2] == highpixel;
-             unsigned char p9 = tempimg.imgMeta.imgData[dstc-1 + posColumn1] == highpixel;
-        
-        
-             int C  = (!p2 & (p3 | p4)) + (!p4 & (p5 | p6)) +
-                      (!p6 & (p7 | p8)) + (!p8 & (p9 | p2));
-             int N1 = (p9 | p2) + (p3 | p4) + (p5 | p6) + (p7 | p8);
-             int N2 = (p2 | p3) + (p4 | p5) + (p6 | p7) + (p8 | p9);
-             int N  = N1 < N2 ? N1 : N2;
-             int m  = ((p2 | p3 | !p5) & p4);
-
-             if (C == 1 && (N >= 2 && N <= 3) & m == 0) {
-                 outimg.imgMeta.imgData[curpos] = lowpixel;
-                 // 记录删除点数的 devchangecount 值加 1 。
-                 //atomicAdd(devchangecount, 1);
-                 *devchangecount = 1;
-             }
          }
      }
  }
@@ -272,7 +186,7 @@ using namespace std;
      blocksize.x = DEF_BLOCK_X;
      blocksize.y = DEF_BLOCK_Y;
      gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
-     gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y * 4 - 1) / blocksize.y * 4;
+     gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y - 1) / blocksize.y;
 
      // 赋值为 1，以便开始第一次迭代。
      changeCount = 1;
