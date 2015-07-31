@@ -1,4 +1,5 @@
-ALGNAMES := Image Thinning_gpu Thinning_gpu_pt Thinning_gpu_pt_con
+ALGNAMES := Image Thinning_gpu Thinning_gpu_pt Thinning_gpu_pt_con Thinning_gpu_four \
+		    Thinning_gpu_pt_con_four
 			
 INCFILES := ErrorCode.h $(addsuffix .h, $(ALGNAMES))
 OBJFILES := main.o $(addsuffix .o, $(ALGNAMES))

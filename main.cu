@@ -1,7 +1,9 @@
 #include <iostream>
 #include "Thinning_gpu.h"
+#include "Thinning_gpu_four.h"
 #include "Thinning_gpu_pt.h"
 #include "Thinning_gpu_pt_con.h"
+#include "Thinning_gpu_pt_con_four.h"
 #include "ErrorCode.h"
 #include "Image.h"
 using namespace std;
@@ -13,77 +15,121 @@ int main(int argc, char const **argv)
 		cout << "Please input image!" << endl;
 		return 0;
 	}
-	Thinning_gpu thin_gpu;
-    Thinning_gpu_pt thin_gpu_pt;
-    Thinning_gpu_pt_con thin_gpu_pt_con;
+	Thinning_gpu              thin_gpu;
+    Thinning_gpu_four         thin_gpu_four;
+    Thinning_gpu_pt           thin_gpu_pt;
+    Thinning_gpu_pt_con       thin_gpu_pt_con;
+    Thinning_gpu_pt_con_four  thin_gpu_pt_con_four;
+
+
 	Image *inimg;
     ImageBasicOp::newImage(&inimg);
     int errcode;
     errcode = ImageBasicOp::readFromFile(argv[1], inimg);
-    if (errcode != NO_ERROR) 
-    {
+    if (errcode != NO_ERROR) {
         cout << "error: " << errcode << endl;
         return 0; 
     }
-    int piexlcont = 0;
-    for(int i = 0; i < inimg->width * inimg->height; i++)
-       if(inimg->imgData[i] == 255)
-          piexlcont ++;
-    cout << "piexlcont = " << piexlcont << endl; 
-    Image *outimg;
-    ImageBasicOp::newImage(&outimg);
-    ImageBasicOp::makeAtHost(outimg, inimg->width, inimg->height);
+    Image *outimg1;
+    ImageBasicOp::newImage(&outimg1);
+    ImageBasicOp::makeAtHost(outimg1, inimg->width, inimg->height);
+
+    Image *outimg2;
+    ImageBasicOp::newImage(&outimg2);
+    ImageBasicOp::makeAtHost(outimg2, inimg->width, inimg->height);
+
+    Image *outimg3;
+    ImageBasicOp::newImage(&outimg3);
+    ImageBasicOp::makeAtHost(outimg3, inimg->width, inimg->height);
+
+    Image *outimg4;
+    ImageBasicOp::newImage(&outimg4);
+    ImageBasicOp::makeAtHost(outimg4, inimg->width, inimg->height);
+
+    Image *outimg5;
+    ImageBasicOp::newImage(&outimg5);
+    ImageBasicOp::makeAtHost(outimg5, inimg->width, inimg->height);
+
+    Image *outimg6;
+    ImageBasicOp::newImage(&outimg6);
+    ImageBasicOp::makeAtHost(outimg6, inimg->width, inimg->height);
     
     cudaEvent_t start, stop;
+    float runTime;
+
+    // 直接并行
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    float runTime;
     cudaEventRecord(start, 0);
     for (int i = 0; i < 100; i++) 
-        thin_gpu.thinGuoHall(inimg, outimg);
-
+        thin_gpu.thinGuoHall(inimg, outimg1);
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&runTime, start, stop);
+	cout << "A2 time is " << (runTime) / 100 << " ms" << endl;
+    ImageBasicOp::copyToHost(outimg1);
+    ImageBasicOp::writeToFile("A2_outimg.bmp", outimg1); 
 
-	cout << "thinGuoHall() time is " << (runTime) / 100 << " ms" << endl;
-    ImageBasicOp::copyToHost(outimg);
-
-    // cudaEvent_t start, stop;
+    // Pattern 表法，Pattern位于 global 内存
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     // float runTime;
     cudaEventRecord(start, 0);
-    for (int i = 0; i < 100; i++) {
-        thin_gpu_pt.thinPattern(inimg, outimg);
-    }
-
+    for (int i = 0; i < 100; i++) 
+        thin_gpu_pt.thinPattern(inimg, outimg2);
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&runTime, start, stop);
+    cout << "A3() time is " << (runTime) / 100 << " ms" << endl;
+    ImageBasicOp::copyToHost(outimg2);
+    ImageBasicOp::writeToFile("A3_outimg.bmp", outimg2); 
 
-    cout << "thinPattern() time is " << (runTime) / 100 << " ms" << endl;
-    ImageBasicOp::copyToHost(outimg);
-
-        // cudaEvent_t start, stop;
+    // Pattern 表法，Pattern位于常量内存
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    // float runTime;
     cudaEventRecord(start, 0);
-    for (int i = 0; i < 100; i++) {
-        thin_gpu_pt_con.thinPatternCon(inimg, outimg);
-    }
-
+    for (int i = 0; i < 100; i++) 
+        thin_gpu_pt_con.thinPatternCon(inimg, outimg3);
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&runTime, start, stop);
+    cout << "A4() time is " << (runTime) / 100 << " ms" << endl;
+    ImageBasicOp::copyToHost(outimg3);
+    ImageBasicOp::writeToFile("A4_outimg.bmp", outimg3); 
 
-    cout << "thinPatternCon() time is " << (runTime) / 100 << " ms" << endl;
-    ImageBasicOp::copyToHost(outimg);
+    // 直接并行,一个线程处理四个点
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start, 0);
+    for (int i = 0; i < 100; i++) 
+        thin_gpu_four.thinGpuFour(inimg, outimg4);
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&runTime, start, stop);
+    cout << "A5() time is " << (runTime) / 100 << " ms" << endl;
+    ImageBasicOp::copyToHost(outimg4);
+    ImageBasicOp::writeToFile("A5_outimg.bmp", outimg4); 
+
+    // Pattern 表法，Pattern位于常量内存,一个线程处理四个点
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start, 0);
+    for (int i = 0; i < 100; i++) 
+        thin_gpu_pt_con_four.thinPatternConFour(inimg, outimg5);
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&runTime, start, stop);
+    cout << "A5() time is " << (runTime) / 100 << " ms" << endl;
+    ImageBasicOp::copyToHost(outimg5);
+    ImageBasicOp::writeToFile("A6_outimg.bmp", outimg5); 
     
-    ImageBasicOp::writeToFile("thinningOut.bmp", outimg);  
     ImageBasicOp::deleteImage(inimg);
-    ImageBasicOp::deleteImage(outimg);
+    ImageBasicOp::deleteImage(outimg1);
+    ImageBasicOp::deleteImage(outimg2);
+    ImageBasicOp::deleteImage(outimg3);
+    ImageBasicOp::deleteImage(outimg4);
+    ImageBasicOp::deleteImage(outimg5);
+    ImageBasicOp::deleteImage(outimg6);
 
 	return 0;
 }
