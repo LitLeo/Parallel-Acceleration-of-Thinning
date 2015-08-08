@@ -1,7 +1,7 @@
 # Compiled Object files
 *.slo
 *.lo
-*.o
+*/*/*.o
 *.obj
 
 # Precompiled Headers
@@ -23,10 +23,10 @@
 *.lib
 
 # Executables
-*.exe
-*.out
+*/*/*.exe
+*/*/*.out
 *.app
 
-Makefile
-run.sh
-main.cu
+*/*/Makefile
+*/*/run.sh
+*/*/main.cu
