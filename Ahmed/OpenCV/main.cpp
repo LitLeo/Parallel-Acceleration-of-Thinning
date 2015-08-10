@@ -5,7 +5,7 @@
 using namespace std;
 using namespace cv;
 
-#define HIGH 1
+#define HIGH 255
 #define LOW 0
 #define isHigh1(x) (((x) == HIGH) ? 1 : 0)
 #define isHigh2(x1, x2) ( (x1) == HIGH && (x2) == HIGH ? 1 : 0)
@@ -69,7 +69,7 @@ int rirt(Mat& inimg, Mat& outimg)
 	inimg.copyTo(outimg);
 	// inimg.copyTo(tempimg);
 	
-	outimg /= 255;
+	// outimg /= 255;
 	// printMat(outimg);
 	int rows = inimg.rows;
 	int cols = inimg.cols;
@@ -82,17 +82,18 @@ int rirt(Mat& inimg, Mat& outimg)
 		changecount = 0;
 		for (int r = 2; r < rows - 2; r++) {
 			for (int c = 2; c < cols - 2; c++) {
-				uchar x1 = tempimg.at<uchar>(r - 1, c - 1);
-				uchar x2 = tempimg.at<uchar>(r - 1, c);
-				uchar x3 = tempimg.at<uchar>(r - 1, c + 1);
-				uchar x4 = tempimg.at<uchar>(r, c - 1);
-				uchar x5 = tempimg.at<uchar>(r, c + 1);
-				uchar x6 = tempimg.at<uchar>(r + 1, c - 1);
-				uchar x7 = tempimg.at<uchar>(r + 1, c);
-				uchar x8 = tempimg.at<uchar>(r + 1, c + 1);
-				uchar x9,x10,x11;
+					
 				// if w is high
 				if(isHigh1(outimg.at<uchar>(r,c))) {
+					uchar x1 = tempimg.at<uchar>(r - 1, c - 1);
+					uchar x2 = tempimg.at<uchar>(r - 1, c);
+					uchar x3 = tempimg.at<uchar>(r - 1, c + 1);
+					uchar x4 = tempimg.at<uchar>(r, c - 1);
+					uchar x5 = tempimg.at<uchar>(r, c + 1);
+					uchar x6 = tempimg.at<uchar>(r + 1, c - 1);
+					uchar x7 = tempimg.at<uchar>(r + 1, c);
+					uchar x8 = tempimg.at<uchar>(r + 1, c + 1);
+					uchar x9,x10,x11;
 					if(isHigh1(x7)) {
 						x9 = tempimg.at<uchar>(r + 2, c - 1);
 						x10 = tempimg.at<uchar>(r + 2, c);
@@ -174,7 +175,7 @@ int rirt(Mat& inimg, Mat& outimg)
 			}
 		}	
 	}
-	outimg *= 255;
+	// outimg *= 255;
 	return 0;
 }
 
