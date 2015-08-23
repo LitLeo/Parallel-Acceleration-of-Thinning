@@ -45,6 +45,8 @@ static __global__ void _thinAhmedKer(ImageCuda tempimg, ImageCuda outimg, int *d
     // 两边各有两个点不处理。
     if (c >= outimg.imgMeta.width - 5 || 
         r >= outimg.imgMeta.height - 5)
+    if (dstc >= tempimg.imgMeta.width - 1 || 
+         dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
         return;
 
     // 定义目标点位置的指针。
@@ -316,8 +318,8 @@ __host__ int Thinning::thinAhmed(Image *inimg, Image *outimg)
     dim3 gridsize, blocksize;
     blocksize.x = DEF_BLOCK_X;
     blocksize.y = DEF_BLOCK_Y;
-    gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1 - 4) / blocksize.x;
-    gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y - 1 - 4) / blocksize.y;
+    gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
+    gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y - 1) / blocksize.y;
 
     // 赋值为 1，以便开始第一次迭代。
     changeCount = 1;

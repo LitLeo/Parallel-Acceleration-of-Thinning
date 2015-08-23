@@ -180,6 +180,118 @@ int rirt(Mat& inimg, Mat& outimg)
 	return 0;
 }
 
+unsigned char lut[256] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 
+0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 
+0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 
+0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 
+0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 
+1, 1, 0, 0, 1, 1, 0, 0 };
+
+int rirtPat(Mat& inimg, Mat& outimg)
+{
+    Mat tempimg;
+    inimg.copyTo(outimg);
+    // inimg.copyTo(tempimg);
+    
+    //outimg /= 255;
+    // printMat(outimg);
+    int rows = inimg.rows;
+    int cols = inimg.cols;
+    int changecount = 1;
+
+    while (changecount != 0)
+    {
+        outimg.copyTo(tempimg);
+        // printMat(outimg);
+        changecount = 0;
+        for (int r = 2; r < rows - 2; r++) {
+            for (int c = 2; c < cols - 2; c++) {
+                    
+                // if w is high
+                if(isHigh1(outimg.at<uchar>(r,c))) {
+                    uchar x1 = tempimg.at<uchar>(r - 1, c - 1);
+                    uchar x2 = tempimg.at<uchar>(r - 1, c);
+                    uchar x3 = tempimg.at<uchar>(r - 1, c + 1);
+                    uchar x4 = tempimg.at<uchar>(r, c - 1);
+                    uchar x5 = tempimg.at<uchar>(r, c + 1);
+                    uchar x6 = tempimg.at<uchar>(r + 1, c - 1);
+                    uchar x7 = tempimg.at<uchar>(r + 1, c);
+                    uchar x8 = tempimg.at<uchar>(r + 1, c + 1);
+                    uchar x9,x10,x11;
+                    if(isHigh1(x7)) {
+                        x9 = tempimg.at<uchar>(r + 2, c - 1);
+                        x10 = tempimg.at<uchar>(r + 2, c);
+                        x11 = tempimg.at<uchar>(r + 2, c + 1);
+
+                        if (isHigh5(x4,x5,x6,x7,x8) && isLow2(x2,x10) ||
+                            isHigh3(x6,x7,x9) && isLow8(x1,x2,x3,x4,x5,x8,x10,x11) ||
+                            isHigh3(x7,x8,x11) && isLow8(x1,x2,x3,x4,x5,x6,x9,x10)) {
+                                continue ;
+                        } 
+                    } 
+                    if(isHigh1(x2)) {
+                        // w is down
+                        x9 = tempimg.at<uchar>(r - 2, c - 1);
+                        x10 = tempimg.at<uchar>(r - 2, c);
+                        x11 = tempimg.at<uchar>(r - 2, c + 1);
+
+                        if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
+                            outimg.at<uchar>(r,c) = LOW;
+                            changecount ++;
+                            continue ;
+                            
+                        } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
+                                   isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) {
+                            continue ;
+                        }
+                    }
+                    if(isHigh1(x5)) {
+                        x9 = tempimg.at<uchar>(r - 1, c + 2);
+                        x10 = tempimg.at<uchar>(r, c + 2);
+                        x11 = tempimg.at<uchar>(r + 1, c + 2);
+
+                        if (isHigh5(x2,x3,x5,x7,x8) && isLow2(x4,x10) ||
+                            isHigh3(x5,x8,x11) && isLow8(x1,x2,x3,x4,x6,x7,x9,x10) ||
+                            isHigh3(x3,x5,x9) && isLow8(x1,x2,x4,x6,x7,x8,x10,x11)) {
+                            continue ;
+                        }
+                    }
+                    if(isHigh1(x4)){
+                        x9 = tempimg.at<uchar>(r - 1, c - 2);
+                        x10 = tempimg.at<uchar>(r, c - 2);
+                        x11 = tempimg.at<uchar>(r + 1, c - 2);
+                        if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
+                            outimg.at<uchar>(r,c) = LOW;
+                            changecount ++;
+                            continue ;
+                        } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
+                                   isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) {
+                            continue ;
+                        }
+                    }
+                    
+                    // 1   2   4
+                    // 8       16
+                    // 32  64  128
+                    unsigned char index = isHigh1(x1) * 1 + isHigh1(x2) * 2 + isHigh1(x3) * 4 + isHigh1(x4) * 8 +
+                                          isHigh1(x5) * 16 + isHigh1(x6) * 32 + isHigh1(x7) * 64 + isHigh1(x8) * 128;
+        
+                    if (lut[index] == 1) {
+                        outimg.at<uchar>(r,c) = LOW;
+                        changecount ++;
+                    }
+                }
+                    
+            }
+        }   
+    }
+    //outimg *= 255;
+    return 0;
+}
+
 int main(int argc, char const **argv)
 {
 	if(argc < 2)
@@ -199,7 +311,8 @@ int main(int argc, char const **argv)
     start=clock();
 
     for (int i = 0; i < 100; ++i)
-		rirt(inimg, outimg);
+		rirtPat(inimg, outimg);
+		// rirt(inimg, outimg);
 	
 	finish=clock();
     totaltime=(double)(finish-start)*10/CLOCKS_PER_SEC;
