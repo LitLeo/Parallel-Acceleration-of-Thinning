@@ -6,7 +6,7 @@
 using namespace std;
 using namespace cv;
 
-#define HIGH 1
+#define HIGH 255
 #define LOW 0
 #define isHigh1(x) (((x) == HIGH) ? 1 : 0)
 #define isHigh2(x1, x2) ( (x1) == HIGH && (x2) == HIGH ? 1 : 0)
@@ -71,7 +71,7 @@ int rirt(Mat& inimg, Mat& outimg)
 	inimg.copyTo(outimg);
 	// inimg.copyTo(tempimg);
 	
-	outimg /= 255;
+	// outimg /= 255;
 	// printMat(outimg);
 	int rows = inimg.rows;
 	int cols = inimg.cols;
@@ -176,7 +176,7 @@ int rirt(Mat& inimg, Mat& outimg)
 			}
 		}	
 	}
-	outimg *= 255;
+	// outimg *= 255;
 	return 0;
 }
 
