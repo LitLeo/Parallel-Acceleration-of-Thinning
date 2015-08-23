@@ -1,11 +1,12 @@
 #include <iostream>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <string>
 
 using namespace std;
 using namespace cv;
 
-#define HIGH 255
+#define HIGH 1
 #define LOW 0
 #define isHigh1(x) (((x) == HIGH) ? 1 : 0)
 #define isHigh2(x1, x2) ( (x1) == HIGH && (x2) == HIGH ? 1 : 0)
@@ -39,6 +40,7 @@ void printMat(Mat im)
 	cout << endl << endl << endl;
 }
 
+
 // x1 x2 x3
 // x4 x  x5
 // x6 x7 x8
@@ -62,14 +64,14 @@ void printMat(Mat im)
 // 0 w 1 0 or	0 w 1 0 stop else   0 1 w 0 or  0 1 w 0 stop
 // 0 0 1 1		0 0 0 0				1 1 0 0		0 0 0 0
 
-// Ï¸»¯º¯Êý
+// ç»†åŒ–å‡½æ•°
 int rirt(Mat& inimg, Mat& outimg)
 {
 	Mat tempimg;
 	inimg.copyTo(outimg);
 	// inimg.copyTo(tempimg);
 	
-	// outimg /= 255;
+	outimg /= 255;
 	// printMat(outimg);
 	int rows = inimg.rows;
 	int cols = inimg.cols;
@@ -82,18 +84,17 @@ int rirt(Mat& inimg, Mat& outimg)
 		changecount = 0;
 		for (int r = 2; r < rows - 2; r++) {
 			for (int c = 2; c < cols - 2; c++) {
-					
+				uchar x1 = tempimg.at<uchar>(r - 1, c - 1);
+				uchar x2 = tempimg.at<uchar>(r - 1, c);
+				uchar x3 = tempimg.at<uchar>(r - 1, c + 1);
+				uchar x4 = tempimg.at<uchar>(r, c - 1);
+				uchar x5 = tempimg.at<uchar>(r, c + 1);
+				uchar x6 = tempimg.at<uchar>(r + 1, c - 1);
+				uchar x7 = tempimg.at<uchar>(r + 1, c);
+				uchar x8 = tempimg.at<uchar>(r + 1, c + 1);
+				uchar x9,x10,x11;
 				// if w is high
 				if(isHigh1(outimg.at<uchar>(r,c))) {
-					uchar x1 = tempimg.at<uchar>(r - 1, c - 1);
-					uchar x2 = tempimg.at<uchar>(r - 1, c);
-					uchar x3 = tempimg.at<uchar>(r - 1, c + 1);
-					uchar x4 = tempimg.at<uchar>(r, c - 1);
-					uchar x5 = tempimg.at<uchar>(r, c + 1);
-					uchar x6 = tempimg.at<uchar>(r + 1, c - 1);
-					uchar x7 = tempimg.at<uchar>(r + 1, c);
-					uchar x8 = tempimg.at<uchar>(r + 1, c + 1);
-					uchar x9,x10,x11;
 					if(isHigh1(x7)) {
 						x9 = tempimg.at<uchar>(r + 2, c - 1);
 						x10 = tempimg.at<uchar>(r + 2, c);
@@ -175,19 +176,38 @@ int rirt(Mat& inimg, Mat& outimg)
 			}
 		}	
 	}
-	// outimg *= 255;
+	outimg *= 255;
 	return 0;
 }
 
-int main()
+int main(int argc, char const **argv)
 {
-	Mat inimg = imread("512-512.bmp", CV_8UC1);
+	if(argc < 2)
+    {
+      cout << "Please input image!" << endl;
+      return 0;
+    }
+	// makePattern();
+	// return 0;
+	Mat inimg = imread(argv[1], CV_8UC1);
 	// printMat(inimg);
 	// return 0;
 	Mat outimg(inimg.size(), CV_8UC1);
-	rirt(inimg, outimg);
-	imshow("outimg", outimg);
-	imwrite("outimg.bmp", outimg);
+
+	clock_t start,finish;
+    double totaltime;
+    start=clock();
+
+    for (int i = 0; i < 100; ++i)
+		rirt(inimg, outimg);
+	
+	finish=clock();
+    totaltime=(double)(finish-start)*10/CLOCKS_PER_SEC;
+    cout<<"\nrunTime = "<<totaltime <<"msï¼"<<endl;
+    string str(argv[1]);
+    str = "out-" + str.substr(10);
+    // cout << CLOCKS_PER_SEC << endl;
+	imwrite( str, outimg);
 	waitKey();
 	return 0;
 }

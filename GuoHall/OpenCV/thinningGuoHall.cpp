@@ -76,12 +76,12 @@ void thinningGuoHall(Mat& inimg, Mat& outimg)
  */
 int main(int argc, char const **argv)
 {
-    //if(argc < 2)
-    //{
-    //  cout << "Please input image!" << endl;
-    //  return 0;
-    //}
-    Mat inimg = cv::imread("thin_songti.bmp", 0);
+    if(argc < 2)
+    {
+      cout << "Please input image!" << endl;
+      return 0;
+    }
+    Mat inimg = cv::imread(argv[1], 0);
     if (inimg.empty())
         return -1;
     inimg /= 255;

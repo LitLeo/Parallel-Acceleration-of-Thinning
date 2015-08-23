@@ -23,10 +23,15 @@
 *.lib
 
 # Executables
-*/*/*.exe
-*/*/*.out
+*.exe
+*.out
 *.app
 
-*/*/Makefile
-*/*/run.sh
-*/*/main.cu
+Makefile
+run.sh
+main.cu
+.ycm_extra_conf.py
+CMakeLists.txt
+
+
+img/*
