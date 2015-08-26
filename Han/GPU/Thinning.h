@@ -35,11 +35,11 @@ public:
         this->lowPixel = 0;     // 低像素值默认为 0。 
     }
 
-    __host__ int thinAhmed(Image *inimg, Image *outimg);
-    __host__ int thinAhmedFour(Image *inimg, Image *outimg);
-    __host__ int thinAhmedPt(Image *inimg, Image *outimg);
-    __host__ int thinAhmedPtCon(Image *inimg, Image *outimg);
-	__host__ int thinAhmedPtConFour(Image *inimg, Image *outimg);
+    __host__ int thinHan(Image *inimg, Image *outimg);
+    // __host__ int thinHanFour(Image *inimg, Image *outimg);
+    __host__ int thinHanPt(Image *inimg, Image *outimg);
+    // __host__ int thinHanPtCon(Image *inimg, Image *outimg);
+    // __host__ int thinHanPtConFour(Image *inimg, Image *outimg);
 };
 
 #endif
