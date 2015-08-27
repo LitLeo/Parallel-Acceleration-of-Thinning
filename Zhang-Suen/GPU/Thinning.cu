@@ -268,6 +268,335 @@ __host__ int Thinning::thinZS(Image *inimg, Image *outimg)
      return NO_ERROR;
 }
 
+static __global__ void _thinZSFour1Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+{
+    // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
+    // column，r 表示 row ）。
+    int dstc = blockIdx.x * blockDim.x + threadIdx.x;
+    int dstr = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
+    // 另一方面防止由于段错误导致程序崩溃。
+    if (dstc >= tempimg.imgMeta.width - 1 || 
+     dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
+     return;
+
+    // 定义目标点位置的指针。
+    unsigned char *outptr;
+
+    // 获取当前像素点在图像中的相对位置。
+    int curpos = dstr * tempimg.pitchBytes + dstc;
+
+    // 获取当前像素点在图像中的绝对位置。
+    outptr = tempimg.imgMeta.imgData + curpos;
+
+    // 如果目标像素点的像素值为低像素, 则不进行细化处理。
+    if (*outptr != LOW) {
+        // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+        // 防止下面细化处理时重复计算。
+        int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+        int posColumn2 = posColumn1 + tempimg.pitchBytes;
+        int posColumn3 = posColumn2 + tempimg.pitchBytes;
+
+        // p1 p2 p3
+        // p8    p4
+        // p7 p6 p5
+        unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1] == HIGH;
+        unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1] == HIGH;
+        unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1] == HIGH;
+        unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2] == HIGH;
+        unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3] == HIGH;
+        unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3] == HIGH;
+        unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3] == HIGH;
+        unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2] == HIGH;
+
+        int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) + 
+                 (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) + 
+                 (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
+                 (p8 == 0 && p1 == 1) + (p1 == 0 && p2 == 1);
+        int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p1;
+        int m1 = (p2 * p4 * p6);
+        int m2 = (p4 * p6 * p8);
+
+        if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0) {
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 记录删除点数的 devchangecount 值加 1 。
+            *devchangecount = 1;
+        }
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        if (++dstr >= outimg.imgMeta.height - 1)
+            return ;
+        curpos += outimg.pitchBytes;  
+
+        // 获取当前像素点在图像中的绝对位置。
+        outptr = outimg.imgMeta.imgData + curpos;
+        if (*outptr != LOW) {
+            // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+            // 防止下面细化处理时重复计算。
+            int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+            int posColumn2 = posColumn1 + tempimg.pitchBytes;
+            int posColumn3 = posColumn2 + tempimg.pitchBytes;
+
+            // p1 p2 p3
+            // p8    p4
+            // p7 p6 p5
+            unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1] == HIGH;
+            unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1] == HIGH;
+            unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1] == HIGH;
+            unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2] == HIGH;
+            unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3] == HIGH;
+            unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3] == HIGH;
+            unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3] == HIGH;
+            unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2] == HIGH;
+
+            int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) + 
+                     (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) + 
+                     (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
+                     (p8 == 0 && p1 == 1) + (p1 == 0 && p2 == 1);
+            int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p1;
+            int m1 = (p2 * p4 * p6);
+            int m2 = (p4 * p6 * p8);
+
+            if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0) {
+                outimg.imgMeta.imgData[curpos] = LOW;
+                // 记录删除点数的 devchangecount 值加 1 。
+                *devchangecount = 1;
+            }
+        }
+    }
+}
+
+static __global__ void _thinZSFour2Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+{
+    // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
+    // column，r 表示 row ）。
+    int dstc = blockIdx.x * blockDim.x + threadIdx.x;
+    int dstr = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
+    // 另一方面防止由于段错误导致程序崩溃。
+    if (dstc >= tempimg.imgMeta.width - 1 || 
+     dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
+     return;
+
+    // 定义目标点位置的指针。
+    unsigned char *outptr;
+
+    // 获取当前像素点在图像中的相对位置。
+    int curpos = dstr * tempimg.pitchBytes + dstc;
+
+    // 获取当前像素点在图像中的绝对位置。
+    outptr = tempimg.imgMeta.imgData + curpos;
+
+    // 如果目标像素点的像素值为低像素, 则不进行细化处理。
+    if (*outptr != LOW) {
+        // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+        // 防止下面细化处理时重复计算。
+        int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+        int posColumn2 = posColumn1 + tempimg.pitchBytes;
+        int posColumn3 = posColumn2 + tempimg.pitchBytes;
+
+        // p1 p2 p3
+        // p8    p4
+        // p7 p6 p5
+        unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1] == HIGH;
+        unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1] == HIGH;
+        unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1] == HIGH;
+        unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2] == HIGH;
+        unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3] == HIGH;
+        unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3] == HIGH;
+        unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3] == HIGH;
+        unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2] == HIGH;
+
+        int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) + 
+                 (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) + 
+                 (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
+                 (p8 == 0 && p1 == 1) + (p1 == 0 && p2 == 1);
+        int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p1;
+        int m1 = (p2 * p4 * p8);
+        int m2 = (p2 * p6 * p8);
+
+        if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0) {
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 记录删除点数的 devchangecount 值加 1 。
+            *devchangecount = 1;
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        if (++dstr >= outimg.imgMeta.height - 1)
+            return ;
+        curpos += outimg.pitchBytes;  
+
+        // 获取当前像素点在图像中的绝对位置。
+        outptr = outimg.imgMeta.imgData + curpos;
+        if (*outptr != LOW) {
+            // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+            // 防止下面细化处理时重复计算。
+            int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+            int posColumn2 = posColumn1 + tempimg.pitchBytes;
+            int posColumn3 = posColumn2 + tempimg.pitchBytes;
+
+            // p1 p2 p3
+            // p8    p4
+            // p7 p6 p5
+            unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1] == HIGH;
+            unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1] == HIGH;
+            unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1] == HIGH;
+            unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2] == HIGH;
+            unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3] == HIGH;
+            unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3] == HIGH;
+            unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3] == HIGH;
+            unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2] == HIGH;
+
+            int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) + 
+                     (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) + 
+                     (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
+                     (p8 == 0 && p1 == 1) + (p1 == 0 && p2 == 1);
+            int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p1;
+            int m1 = (p2 * p4 * p8);
+            int m2 = (p2 * p6 * p8);
+
+            if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0) {
+                outimg.imgMeta.imgData[curpos] = LOW;
+                // 记录删除点数的 devchangecount 值加 1 。
+                *devchangecount = 1;
+            }
+        }
+    }
+}
+
+// 直接并行化
+// 线程数，处理多少个点有多少线程数
+__host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
+{
+    // 局部变量，错误码。
+     int errcode;  
+     cudaError_t cudaerrcode; 
+
+     // 检查输入图像，输出图像是否为空。
+     if (inimg == NULL || outimg == NULL)
+         return NULL_POINTER;
+
+     // 声明所有中间变量并初始化为空。
+     Image *tempimg = NULL;
+     int *devchangecount = NULL;
+
+     // 记录细化点数的变量，位于 host 端。
+     int changeCount;
+
+     // 记录细化点数的变量，位于 device 端。并为其申请空间。
+     cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
+
+     // 生成暂存图像。
+     errcode = ImageBasicOp::newImage(&tempimg);
+     if (errcode != NO_ERROR)
+         return errcode;
+     errcode = ImageBasicOp::makeAtCurrentDevice(tempimg, inimg->width, 
+                                                 inimg->height);
+     if (errcode != NO_ERROR) {
+         return errcode;
+     }
+
+     // 将输入图像 inimg 完全拷贝到输出图像 outimg ，并将 outimg 拷贝到 
+     // device 端。
+     errcode = ImageBasicOp::copyToCurrentDevice(inimg, outimg);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
+     
+     // 提取输出图像
+     ImageCuda outsubimgCud;
+     errcode = ImageBasicOp::roiSubImage(outimg, &outsubimgCud);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
+
+     // 提取暂存图像
+     ImageCuda tempsubimgCud;
+     errcode = ImageBasicOp::roiSubImage(tempimg, &tempsubimgCud);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
+
+     // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
+     dim3 gridsize, blocksize;
+     blocksize.x = DEF_BLOCK_X;
+     blocksize.y = DEF_BLOCK_Y;
+     gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
+     gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y*3 - 1) / blocksize.y*3;
+
+     // 赋值为 1，以便开始第一次迭代。
+     changeCount = 1;
+
+     // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
+     // 停止迭代。 
+     while (changeCount > 0) {
+         // 将 host 端的变量赋值为 0 ，并将值拷贝到 device 端的 devchangecount。
+         changeCount = 0;
+         cudaerrcode = cudaMemcpy(devchangecount, &changeCount, sizeof (int),
+                                  cudaMemcpyHostToDevice);
+         if (cudaerrcode != cudaSuccess) {
+             return CUDA_ERROR;
+         }
+
+         // copy ouimg to tempimg 
+         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                      outimg->imgData, outsubimgCud.deviceId, 
+                                      outsubimgCud.pitchBytes * outimg->height);
+        
+         if (cudaerrcode != cudaSuccess) {
+             return CUDA_ERROR;
+         }
+
+         // 调用核函数，开始第一步细化操作。
+         _thinZSFour1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         if (cudaGetLastError() != cudaSuccess) {
+             // 核函数出错，结束迭代函数，释放申请的变量空间。
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }
+
+         // copy ouimg to tempimg 
+         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                      outimg->imgData, outsubimgCud.deviceId, 
+                                      outsubimgCud.pitchBytes * outimg->height);
+        
+         if (cudaerrcode != cudaSuccess) {
+             return CUDA_ERROR;
+         }
+
+         // 调用核函数，开始第二步细化操作。
+         _thinZSFour2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         if (cudaGetLastError() != cudaSuccess) {
+             // 核函数出错，结束迭代函数，释放申请的变量空间 。
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }     
+        
+         // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
+         // 变量，进行迭代判断。
+         cudaerrcode = cudaMemcpy(&changeCount, devchangecount, sizeof (int),
+                                  cudaMemcpyDeviceToHost);
+         if (cudaerrcode != cudaSuccess) {
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }
+
+    }
+     // 细化结束后释放申请的变量空间。
+     cudaFree(devchangecount);
+     ImageBasicOp::deleteImage(tempimg);
+     return NO_ERROR;
+}
+
 static __global__ void _thinZSPt1Ker(ImageCuda tempimg, ImageCuda outimg, 
                                      int *devchangecount, uchar *dev_lut)
 {
@@ -535,213 +864,137 @@ __host__ int Thinning::thinZSPt(Image *inimg, Image *outimg)
 
     return NO_ERROR;
 }
-/*
-// GPU版本5，GPU版本1的基础上使用单线程处理四个点
-static __global__ void _thinZSFourKer(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+
+__constant__ uchar con_lut[512] = 
 {
-    // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
+    0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 
+    0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+
+    0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 
+    0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0
+};
+
+static __global__ void _thinZSPtCon1Ker(ImageCuda tempimg, ImageCuda outimg, 
+                                     int *devchangecount)
+{
+    // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
-    int c = blockIdx.x * blockDim.x + threadIdx.x;
-    int r = blockIdx.y * blockDim.y + threadIdx.y;
+    int dstc = blockIdx.x * blockDim.x + threadIdx.x;
+    int dstr = blockIdx.y * blockDim.y + threadIdx.y;
 
     // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
     // 另一方面防止由于段错误导致程序崩溃。
-    // 两边各有两个点不处理。
-    if (c >= outimg.imgMeta.width - 2 || 
-         r >= outimg.imgMeta.height - 2 || c < 2 || r < 2)
-        return;
+    if (dstc >= tempimg.imgMeta.width - 1 || 
+     dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
+     return;
 
     // 定义目标点位置的指针。
     unsigned char *outptr;
 
     // 获取当前像素点在图像中的相对位置。
-    // 从左上角第二行第二列开始计算。
-    int curpos = (r) * outimg.pitchBytes + c ;
+    int curpos = dstr * tempimg.pitchBytes + dstc;
 
     // 获取当前像素点在图像中的绝对位置。
-    outptr = outimg.imgMeta.imgData + curpos ;
-    unsigned char x1, x2, x3, x4, x5, x6, x7, x8;
+    outptr = tempimg.imgMeta.imgData + curpos;
 
     // 如果目标像素点的像素值为低像素, 则不进行细化处理。
-    if (isHigh1(*outptr)) {
-        x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
-        x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
-        x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
-        x4 = tempimg.imgMeta.imgData[curpos - 1];
-        x5 = tempimg.imgMeta.imgData[curpos + 1];
-        x6 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes - 1];
-        x7 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes];
-        x8 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes + 1];
-        unsigned char x9,x10,x11;
-        if(isHigh1(x7)) {
-            x9 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2 - 1];
-            x10 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2];
-            x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2 + 1];
+    if (*outptr != LOW) {
+        // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+        // 防止下面细化处理时重复计算。
+        int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+        int posColumn2 = posColumn1 + tempimg.pitchBytes;
+        int posColumn3 = posColumn2 + tempimg.pitchBytes;
 
-            if (isHigh5(x4,x5,x6,x7,x8) && isLow2(x2,x10) ||
-                isHigh3(x6,x7,x9) && isLow8(x1,x2,x3,x4,x5,x8,x10,x11) ||
-                isHigh3(x7,x8,x11) && isLow8(x1,x2,x3,x4,x5,x6,x9,x10))
-                    return ;
-        } 
-        if(isHigh1(x2)) {
-            // w is down
-            x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2 - 1];
-            x10 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2];
-            x11 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2 + 1];
+        // p1 p2 p3
+        // p8    p4
+        // p7 p6 p5
+        unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1];
+        unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1];
+        unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1];
+        unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2];
+        unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3];
+        unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3];
+        unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3];
+        unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2];
 
-            if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
-                return ;
-            } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
-                       isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) 
-                return ;
+        uchar index= (p1==HIGH)*1 + (p2==HIGH)*2 + (p3==HIGH)*4 + (p4==HIGH)*8 + 
+                     (p5==HIGH)*16 + (p6==HIGH)*32 + (p7==HIGH)*64 + (p8==HIGH)*128;
+
+        if (con_lut[index]) {
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 记录删除点数的 devchangecount 值加 1 。
+            *devchangecount = 1;
         }
-        if(isHigh1(x5)) {
-            x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 2];
-            x10 = tempimg.imgMeta.imgData[curpos + 2];
-            x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes + 2];
-
-            if (isHigh5(x2,x3,x5,x7,x8) && isLow2(x4,x10) ||
-                isHigh3(x5,x8,x11) && isLow8(x1,x2,x3,x4,x6,x7,x9,x10) ||
-                isHigh3(x3,x5,x9) && isLow8(x1,x2,x4,x6,x7,x8,x10,x11))
-                return ;
-        }
-        if(isHigh1(x4)){
-            x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 2];
-            x10 = tempimg.imgMeta.imgData[curpos - 2];
-            x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes - 2];
-            if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
-                return ;
-            } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
-                       isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) 
-                return ;
-        }
-        
-        if (isHigh4(x1, x4, x6, x7) && isLow2(x3, x5) || // 1
-            isHigh4(x1, x2, x4, x6) && isLow2(x5, x8) || // 2
-            isHigh4(x1, x2, x3, x5) && isLow2(x6, x7) || // 3
-            isHigh4(x1, x2, x3, x4) && isLow2(x7, x8) || // 4
-            isLow4(x3, x5, x7, x8) && isHigh2(x1, x4) || // 5
-            isLow4(x5, x6, x7, x8) && isHigh2(x1, x2) || // 6
-            isLow1(x5) && isHigh7(x1, x2, x3, x4, x6, x7, x8) || // 7
-            isLow1(x7) && isHigh7(x1, x2, x3, x4, x5, x6, x8) || // 8
-            isLow4(x2, x3, x5, x8) && isHigh2(x4, x6) || // 9
-            isLow4(x1, x2, x3, x5) && isHigh2(x6, x7) || // 10
-            isLow4(x4, x6, x7, x8) && isHigh2(x2, x3) || // 11
-            isLow4(x1, x4, x6, x7) && isHigh2(x3, x5) || // 12
-            isLow4(x1, x2, x3, x4) && isHigh2(x7, x8) || // 13
-            isLow4(x1, x2, x4, x6) && isHigh2(x5, x8) || // 14
-            isLow1(x4) && isHigh7(x1, x2, x3, x5, x6, x7, x8) || // 15
-            isLow1(x2) && isHigh7(x1, x3, x4, x5, x6, x7, x8) || // 16
-            isHigh4(x3, x5, x7, x8) && isLow2(x1, x4) || // 17
-            isHigh4(x2, x3, x5, x8) && isLow2(x4, x6) || // 18
-            isHigh4(x5, x6, x7, x8) && isLow2(x1, x2) || // 19
-            isHigh4(x4, x6, x7, x8) && isLow2(x2, x3) // 20
-            ) {
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
-        }       
-    }
-
-    for (int i = 0; i < 3; ++i) {
-        if (++r >= outimg.imgMeta.height - 2)
-            return ;
-        curpos += outimg.pitchBytes;  
-
-        // 获取当前像素点在图像中的绝对位置。
-        outptr = outimg.imgMeta.imgData + curpos;
-
-        // 如果目标像素点的像素值为低像素, 则不进行细化处理。
-        if (isHigh1(*outptr)) {
-            x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
-            x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
-            x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
-            x4 = tempimg.imgMeta.imgData[curpos - 1];
-            x5 = tempimg.imgMeta.imgData[curpos + 1];
-            x6 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes - 1];
-            x7 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes];
-            x8 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes + 1];
-            unsigned char x9,x10,x11;
-            if(isHigh1(x7)) {
-                x9 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2 - 1];
-                x10 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2];
-                x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2 + 1];
-
-                if (isHigh5(x4,x5,x6,x7,x8) && isLow2(x2,x10) ||
-                    isHigh3(x6,x7,x9) && isLow8(x1,x2,x3,x4,x5,x8,x10,x11) ||
-                    isHigh3(x7,x8,x11) && isLow8(x1,x2,x3,x4,x5,x6,x9,x10))
-                        return ;
-            } 
-            if(isHigh1(x2)) {
-                // w is down
-                x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2 - 1];
-                x10 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2];
-                x11 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2 + 1];
-
-                if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
-                    outimg.imgMeta.imgData[curpos] = LOW;
-                    *devchangecount = 1;
-                    return ;
-                } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
-                           isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) 
-                    return ;
-            }
-            if(isHigh1(x5)) {
-                x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 2];
-                x10 = tempimg.imgMeta.imgData[curpos + 2];
-                x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes + 2];
-
-                if (isHigh5(x2,x3,x5,x7,x8) && isLow2(x4,x10) ||
-                    isHigh3(x5,x8,x11) && isLow8(x1,x2,x3,x4,x6,x7,x9,x10) ||
-                    isHigh3(x3,x5,x9) && isLow8(x1,x2,x4,x6,x7,x8,x10,x11))
-                    return ;
-            }
-            if(isHigh1(x4)){
-                x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 2];
-                x10 = tempimg.imgMeta.imgData[curpos - 2];
-                x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes - 2];
-                if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
-                    outimg.imgMeta.imgData[curpos] = LOW;
-                    *devchangecount = 1;
-                    return ;
-                } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
-                           isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) 
-                    return ;
-            }
-            
-            if (isHigh4(x1, x4, x6, x7) && isLow2(x3, x5) || // 1
-                isHigh4(x1, x2, x4, x6) && isLow2(x5, x8) || // 2
-                isHigh4(x1, x2, x3, x5) && isLow2(x6, x7) || // 3
-                isHigh4(x1, x2, x3, x4) && isLow2(x7, x8) || // 4
-                isLow4(x3, x5, x7, x8) && isHigh2(x1, x4) || // 5
-                isLow4(x5, x6, x7, x8) && isHigh2(x1, x2) || // 6
-                isLow1(x5) && isHigh7(x1, x2, x3, x4, x6, x7, x8) || // 7
-                isLow1(x7) && isHigh7(x1, x2, x3, x4, x5, x6, x8) || // 8
-                isLow4(x2, x3, x5, x8) && isHigh2(x4, x6) || // 9
-                isLow4(x1, x2, x3, x5) && isHigh2(x6, x7) || // 10
-                isLow4(x4, x6, x7, x8) && isHigh2(x2, x3) || // 11
-                isLow4(x1, x4, x6, x7) && isHigh2(x3, x5) || // 12
-                isLow4(x1, x2, x3, x4) && isHigh2(x7, x8) || // 13
-                isLow4(x1, x2, x4, x6) && isHigh2(x5, x8) || // 14
-                isLow1(x4) && isHigh7(x1, x2, x3, x5, x6, x7, x8) || // 15
-                isLow1(x2) && isHigh7(x1, x3, x4, x5, x6, x7, x8) || // 16
-                isHigh4(x3, x5, x7, x8) && isLow2(x1, x4) || // 17
-                isHigh4(x2, x3, x5, x8) && isLow2(x4, x6) || // 18
-                isHigh4(x5, x6, x7, x8) && isLow2(x1, x2) || // 19
-                isHigh4(x4, x6, x7, x8) && isLow2(x2, x3) // 20
-                ) {
-                    outimg.imgMeta.imgData[curpos] = LOW;
-                    *devchangecount = 1;
-            }       
-        }
-
     }
 }
 
-__host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
+static __global__ void _thinZSPtCon2Ker(ImageCuda tempimg, ImageCuda outimg, 
+                                     int *devchangecount)
+{
+    // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
+    // column，r 表示 row ）。
+    int dstc = blockIdx.x * blockDim.x + threadIdx.x;
+    int dstr = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
+    // 另一方面防止由于段错误导致程序崩溃。
+    if (dstc >= tempimg.imgMeta.width - 1 || 
+     dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
+     return;
+
+    // 定义目标点位置的指针。
+    unsigned char *outptr;
+
+    // 获取当前像素点在图像中的相对位置。
+    int curpos = dstr * tempimg.pitchBytes + dstc;
+
+    // 获取当前像素点在图像中的绝对位置。
+    outptr = tempimg.imgMeta.imgData + curpos;
+
+    // 如果目标像素点的像素值为低像素, 则不进行细化处理。
+    if (*outptr != LOW) {
+        // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+        // 防止下面细化处理时重复计算。
+        int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+        int posColumn2 = posColumn1 + tempimg.pitchBytes;
+        int posColumn3 = posColumn2 + tempimg.pitchBytes;
+
+        // p1 p2 p3
+        // p8    p4
+        // p7 p6 p5
+        unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1];
+        unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1];
+        unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1];
+        unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2];
+        unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3];
+        unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3];
+        unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3];
+        unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2];
+
+        uchar index= (p1==HIGH)*1 + (p2==HIGH)*2 + (p3==HIGH)*4 + (p4==HIGH)*8 + 
+                     (p5==HIGH)*16 + (p6==HIGH)*32 + (p7==HIGH)*64 + (p8==HIGH)*128;
+
+        if (con_lut[index]) {
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 记录删除点数的 devchangecount 值加 1 。
+            *devchangecount = 1;
+        }
+    }
+}
+
+__host__ int Thinning::thinZSPtCon(Image *inimg, Image *outimg)
 {
     // 局部变量，错误码。
     int errcode;  
@@ -761,68 +1014,65 @@ __host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
     // 记录细化点数的变量，位于 device 端。并为其申请空间。
     cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
     if (cudaerrcode != cudaSuccess) {
-        // FAIL_THIN_IMAGE_FREE;
         return CUDA_ERROR;
     }
 
-    // 生成暂存图像。
-    errcode = ImageBasicOp::newImage(&tempimg);
-    if (errcode != NO_ERROR)
-        return errcode;
-    errcode = ImageBasicOp::makeAtCurrentDevice(tempimg, inimg->width, 
-                                                inimg->height);
-    if (errcode != NO_ERROR) {
-        // FAIL_THIN_IMAGE_FREE;
-        return errcode;
-    }
+     // 生成暂存图像。
+     errcode = ImageBasicOp::newImage(&tempimg);
+     if (errcode != NO_ERROR)
+         return errcode;
+     errcode = ImageBasicOp::makeAtCurrentDevice(tempimg, inimg->width, 
+                                                 inimg->height);
+     if (errcode != NO_ERROR) {
+         return errcode;
+     }
 
-    // 将输入图像 inimg 完全拷贝到输出图像 outimg ，并将 outimg 拷贝到 
-    // device 端。
-    errcode = ImageBasicOp::copyToCurrentDevice(inimg, outimg);
-    if (errcode != NO_ERROR) {
-        // FAIL_THIN_IMAGE_FREE;
-        return errcode;
-    }
+     // 将输入图像 inimg 完全拷贝到输出图像 outimg ，并将 outimg 拷贝到 
+     // device 端。
+     errcode = ImageBasicOp::copyToCurrentDevice(inimg, outimg);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
+     
+     // 提取输出图像
+     ImageCuda outsubimgCud;
+     errcode = ImageBasicOp::roiSubImage(outimg, &outsubimgCud);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
 
-    // 提取输出图像
-    ImageCuda outsubimgCud;
-    errcode = ImageBasicOp::roiSubImage(outimg, &outsubimgCud);
-    if (errcode != NO_ERROR) {
-        // FAIL_THIN_IMAGE_FREE;
-        return errcode;
-    }
+     // 提取暂存图像
+     ImageCuda tempsubimgCud;
+     errcode = ImageBasicOp::roiSubImage(tempimg, &tempsubimgCud);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
 
-    // 提取暂存图像
-    ImageCuda tempsubimgCud;
-    errcode = ImageBasicOp::roiSubImage(tempimg, &tempsubimgCud);
-    if (errcode != NO_ERROR) {
-        // FAIL_THIN_IMAGE_FREE;
-        return errcode;
-    }
+     // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
+     dim3 gridsize, blocksize;
+     blocksize.x = DEF_BLOCK_X;
+     blocksize.y = DEF_BLOCK_Y;
+     gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
+     gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y - 1) / blocksize.y;
 
-    // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
-    dim3 gridsize, blocksize;
-    blocksize.x = DEF_BLOCK_X;
-    blocksize.y = DEF_BLOCK_Y;
-    gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
-    gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y * 4 - 1) / blocksize.y * 4;
+     // 赋值为 1，以便开始第一次迭代。
+     changeCount = 1;
 
-    // 赋值为 1，以便开始第一次迭代。
-    changeCount = 1;
-
-    // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
-    // 停止迭代。 
-    while (changeCount > 0) {
+     // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
+     // 停止迭代。 
+     while (changeCount > 0) {
         // 将 host 端的变量赋值为 0 ，并将值拷贝到 device 端的 devchangecount。
         changeCount = 0;
         cudaerrcode = cudaMemcpy(devchangecount, &changeCount, sizeof (int),
-                                 cudaMemcpyHostToDevice);
+                              cudaMemcpyHostToDevice);
         if (cudaerrcode != cudaSuccess) {
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
+         return CUDA_ERROR;
         }
 
-        // copy ouimg to tempimg 
+         // copy ouimg to tempimg 
          cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
                                       outimg->imgData, outsubimgCud.deviceId, 
                                       outsubimgCud.pitchBytes * outimg->height);
@@ -830,25 +1080,42 @@ __host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
          if (cudaerrcode != cudaSuccess) {
              return CUDA_ERROR;
          }
-            
-        // 调用核函数，开始第一步细化操作。
-        _thinZSFourKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
-        if (cudaGetLastError() != cudaSuccess) {
-            // 核函数出错，结束迭代函数，释放申请的变量空间。
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }    
-        
-        // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
-        // 变量，进行迭代判断。
-        cudaerrcode = cudaMemcpy(&changeCount, devchangecount, sizeof (int),
-                                 cudaMemcpyDeviceToHost);
-        if (cudaerrcode != cudaSuccess) {
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }
 
-   }
+         // 调用核函数，开始第一步细化操作。
+         _thinZSPtCon1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         if (cudaGetLastError() != cudaSuccess) {
+             // 核函数出错，结束迭代函数，释放申请的变量空间。
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }
+
+         // copy ouimg to tempimg 
+         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                      outimg->imgData, outsubimgCud.deviceId, 
+                                      outsubimgCud.pitchBytes * outimg->height);
+        
+         if (cudaerrcode != cudaSuccess) {
+             return CUDA_ERROR;
+         }
+
+         // 调用核函数，开始第二步细化操作。
+         _thinZSPtCon2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         if (cudaGetLastError() != cudaSuccess) {
+             // 核函数出错，结束迭代函数，释放申请的变量空间 。
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }     
+        
+         // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
+         // 变量，进行迭代判断。
+         cudaerrcode = cudaMemcpy(&changeCount, devchangecount, sizeof (int),
+                                  cudaMemcpyDeviceToHost);
+         if (cudaerrcode != cudaSuccess) {
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }
+
+    }
 
     // 细化结束后释放申请的变量空间。
     cudaFree(devchangecount);
@@ -857,185 +1124,191 @@ __host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
     return NO_ERROR;
 }
 
-// GPU版本4，使用Pattern表法后，单线程内逻辑大大降低。使单线程处理四个点，增大线程复杂度，减少线程数量
-static __global__ void _thinZSPtConFourKer(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+static __global__ void _thinZSPtConFour1Ker(ImageCuda tempimg, ImageCuda outimg, 
+                                     int *devchangecount)
 {
-     // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
+    // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
-    int c = blockIdx.x * blockDim.x + threadIdx.x;
-    int r = blockIdx.y * blockDim.y + threadIdx.y;
+    int dstc = blockIdx.x * blockDim.x + threadIdx.x;
+    int dstr = blockIdx.y * blockDim.y + threadIdx.y;
 
     // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
     // 另一方面防止由于段错误导致程序崩溃。
-    // 两边各有两个点不处理。
-    if (c >= outimg.imgMeta.width - 2 || 
-         r >= outimg.imgMeta.height - 2 || c < 2 || r < 2)
-        return;
+    if (dstc >= tempimg.imgMeta.width - 1 || 
+     dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
+     return;
 
     // 定义目标点位置的指针。
     unsigned char *outptr;
 
     // 获取当前像素点在图像中的相对位置。
-    // 从左上角第二行第二列开始计算。
-    int curpos = (r) * outimg.pitchBytes + c ;
+    int curpos = dstr * tempimg.pitchBytes + dstc;
 
     // 获取当前像素点在图像中的绝对位置。
-    outptr = outimg.imgMeta.imgData + curpos ;
-    unsigned char x1, x2, x3, x4, x5, x6, x7, x8;
+    outptr = tempimg.imgMeta.imgData + curpos;
 
     // 如果目标像素点的像素值为低像素, 则不进行细化处理。
-    if (isHigh1(*outptr)) {
-        x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
-        x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
-        x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
-        x4 = tempimg.imgMeta.imgData[curpos - 1];
-        x5 = tempimg.imgMeta.imgData[curpos + 1];
-        x6 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes - 1];
-        x7 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes];
-        x8 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes + 1];
-        unsigned char x9,x10,x11;
-        if(isHigh1(x7)) {
-            x9 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2 - 1];
-            x10 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2];
-            x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2 + 1];
+    if (*outptr != LOW) {
+        // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+        // 防止下面细化处理时重复计算。
+        int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+        int posColumn2 = posColumn1 + tempimg.pitchBytes;
+        int posColumn3 = posColumn2 + tempimg.pitchBytes;
 
-            if (isHigh5(x4,x5,x6,x7,x8) && isLow2(x2,x10) ||
-                isHigh3(x6,x7,x9) && isLow8(x1,x2,x3,x4,x5,x8,x10,x11) ||
-                isHigh3(x7,x8,x11) && isLow8(x1,x2,x3,x4,x5,x6,x9,x10))
-                    return ;
-        } 
-        if(isHigh1(x2)) {
-            // w is down
-            x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2 - 1];
-            x10 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2];
-            x11 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2 + 1];
+        // p1 p2 p3
+        // p8    p4
+        // p7 p6 p5
+        unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1];
+        unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1];
+        unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1];
+        unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2];
+        unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3];
+        unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3];
+        unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3];
+        unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2];
 
-            if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
-                return ;
-            } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
-                       isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) 
-                return ;
+        uchar index= (p1==HIGH)*1 + (p2==HIGH)*2 + (p3==HIGH)*4 + (p4==HIGH)*8 + 
+                     (p5==HIGH)*16 + (p6==HIGH)*32 + (p7==HIGH)*64 + (p8==HIGH)*128;
+
+        if (con_lut[index]) {
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 记录删除点数的 devchangecount 值加 1 。
+            *devchangecount = 1;
         }
-        if(isHigh1(x5)) {
-            x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 2];
-            x10 = tempimg.imgMeta.imgData[curpos + 2];
-            x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes + 2];
-
-            if (isHigh5(x2,x3,x5,x7,x8) && isLow2(x4,x10) ||
-                isHigh3(x5,x8,x11) && isLow8(x1,x2,x3,x4,x6,x7,x9,x10) ||
-                isHigh3(x3,x5,x9) && isLow8(x1,x2,x4,x6,x7,x8,x10,x11))
-                return ;
-        }
-        if(isHigh1(x4)){
-            x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 2];
-            x10 = tempimg.imgMeta.imgData[curpos - 2];
-            x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes - 2];
-            if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
-                return ;
-            } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
-                       isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) 
-                return ;
-        }
-
-        // 1   2   4
-        // 8       16
-        // 32  64  128
-        unsigned char index = isHigh1(x1) * 1 + isHigh1(x2) * 2 + isHigh1(x3) * 4 + isHigh1(x4) * 8 +
-                              isHigh1(x5) * 16 + isHigh1(x6) * 32 + isHigh1(x7) * 64 + isHigh1(x8) * 128;
-        
-        if (con_lutthin[index] == 1) {
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
-        }       
     }
 
     for (int i = 0; i < 3; ++i) {
-        if (++r >= outimg.imgMeta.height - 2)
+        if (++dstr >= outimg.imgMeta.height - 1)
             return ;
         curpos += outimg.pitchBytes;  
 
         // 获取当前像素点在图像中的绝对位置。
         outptr = outimg.imgMeta.imgData + curpos;
+        if (*outptr != LOW) {
+            // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+            // 防止下面细化处理时重复计算。
+            int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+            int posColumn2 = posColumn1 + tempimg.pitchBytes;
+            int posColumn3 = posColumn2 + tempimg.pitchBytes;
 
-        // 如果目标像素点的像素值为低像素, 则不进行细化处理。
-        if (isHigh1(*outptr)) {
-            x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
-            x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
-            x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
-            x4 = tempimg.imgMeta.imgData[curpos - 1];
-            x5 = tempimg.imgMeta.imgData[curpos + 1];
-            x6 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes - 1];
-            x7 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes];
-            x8 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes + 1];
-            unsigned char x9,x10,x11;
-            if(isHigh1(x7)) {
-                x9 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2 - 1];
-                x10 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2];
-                x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes * 2 + 1];
+            // p1 p2 p3
+            // p8    p4
+            // p7 p6 p5
+            unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1];
+            unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1];
+            unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1];
+            unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2];
+            unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3];
+            unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3];
+            unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3];
+            unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2];
 
-                if (isHigh5(x4,x5,x6,x7,x8) && isLow2(x2,x10) ||
-                    isHigh3(x6,x7,x9) && isLow8(x1,x2,x3,x4,x5,x8,x10,x11) ||
-                    isHigh3(x7,x8,x11) && isLow8(x1,x2,x3,x4,x5,x6,x9,x10))
-                        return ;
-            } 
-            if(isHigh1(x2)) {
-                // w is down
-                x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2 - 1];
-                x10 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2];
-                x11 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes * 2 + 1];
+            uchar index= (p1==HIGH)*1 + (p2==HIGH)*2 + (p3==HIGH)*4 + (p4==HIGH)*8 + 
+                         (p5==HIGH)*16 + (p6==HIGH)*32 + (p7==HIGH)*64 + (p8==HIGH)*128;
 
-                if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
-                    outimg.imgMeta.imgData[curpos] = LOW;
-                    *devchangecount = 1;
-                    return ;
-                } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
-                           isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) 
-                    return ;
+            if (con_lut[index]) {
+                outimg.imgMeta.imgData[curpos] = LOW;
+                // 记录删除点数的 devchangecount 值加 1 。
+                *devchangecount = 1;
             }
-            if(isHigh1(x5)) {
-                x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 2];
-                x10 = tempimg.imgMeta.imgData[curpos + 2];
-                x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes + 2];
+        }
+    }
+}
 
-                if (isHigh5(x2,x3,x5,x7,x8) && isLow2(x4,x10) ||
-                    isHigh3(x5,x8,x11) && isLow8(x1,x2,x3,x4,x6,x7,x9,x10) ||
-                    isHigh3(x3,x5,x9) && isLow8(x1,x2,x4,x6,x7,x8,x10,x11))
-                    return ;
-            }
-            if(isHigh1(x4)){
-                x9 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 2];
-                x10 = tempimg.imgMeta.imgData[curpos - 2];
-                x11 = tempimg.imgMeta.imgData[curpos + outimg.pitchBytes - 2];
-                if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
-                    outimg.imgMeta.imgData[curpos] = LOW;
-                    *devchangecount = 1;
-                    return ;
-                } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
-                           isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) 
-                    return ;
-            }
+static __global__ void _thinZSPtConFour2Ker(ImageCuda tempimg, ImageCuda outimg, 
+                                     int *devchangecount)
+{
+    // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
+    // column，r 表示 row ）。
+    int dstc = blockIdx.x * blockDim.x + threadIdx.x;
+    int dstr = blockIdx.y * blockDim.y + threadIdx.y;
 
-            // 1   2   4
-            // 8       16
-            // 32  64  128
-            unsigned char index = isHigh1(x1) * 1 + isHigh1(x2) * 2 + isHigh1(x3) * 4 + isHigh1(x4) * 8 +
-                                  isHigh1(x5) * 16 + isHigh1(x6) * 32 + isHigh1(x7) * 64 + isHigh1(x8) * 128;
-            
-            if (con_lutthin[index] == 1) {
-                    outimg.imgMeta.imgData[curpos] = LOW;
-                    *devchangecount = 1;
-            }       
+    // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
+    // 另一方面防止由于段错误导致程序崩溃。
+    if (dstc >= tempimg.imgMeta.width - 1 || 
+     dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
+     return;
+
+    // 定义目标点位置的指针。
+    unsigned char *outptr;
+
+    // 获取当前像素点在图像中的相对位置。
+    int curpos = dstr * tempimg.pitchBytes + dstc;
+
+    // 获取当前像素点在图像中的绝对位置。
+    outptr = tempimg.imgMeta.imgData + curpos;
+
+    // 如果目标像素点的像素值为低像素, 则不进行细化处理。
+    if (*outptr != LOW) {
+        // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+        // 防止下面细化处理时重复计算。
+        int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+        int posColumn2 = posColumn1 + tempimg.pitchBytes;
+        int posColumn3 = posColumn2 + tempimg.pitchBytes;
+
+        // p1 p2 p3
+        // p8    p4
+        // p7 p6 p5
+        unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1];
+        unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1];
+        unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1];
+        unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2];
+        unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3];
+        unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3];
+        unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3];
+        unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2];
+
+        uchar index= (p1==HIGH)*1 + (p2==HIGH)*2 + (p3==HIGH)*4 + (p4==HIGH)*8 + 
+                     (p5==HIGH)*16 + (p6==HIGH)*32 + (p7==HIGH)*64 + (p8==HIGH)*128;
+
+        if (con_lut[index]) {
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 记录删除点数的 devchangecount 值加 1 。
+            *devchangecount = 1;
+        }
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        if (++dstr >= outimg.imgMeta.height - 1)
+            return ;
+        curpos += outimg.pitchBytes;  
+
+        // 获取当前像素点在图像中的绝对位置。
+        outptr = outimg.imgMeta.imgData + curpos;
+        if (*outptr != LOW) {
+            // 由于图像是线性存储的，所以在这里先获得 8 邻域里三列的列索引值，
+            // 防止下面细化处理时重复计算。
+            int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
+            int posColumn2 = posColumn1 + tempimg.pitchBytes;
+            int posColumn3 = posColumn2 + tempimg.pitchBytes;
+
+            // p1 p2 p3
+            // p8    p4
+            // p7 p6 p5
+            unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1];
+            unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1];
+            unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1];
+            unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2];
+            unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3];
+            unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3];
+            unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3];
+            unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2];
+
+            uchar index= (p1==HIGH)*1 + (p2==HIGH)*2 + (p3==HIGH)*4 + (p4==HIGH)*8 + 
+                         (p5==HIGH)*16 + (p6==HIGH)*32 + (p7==HIGH)*64 + (p8==HIGH)*128;
+
+            if (con_lut[index + 256]) {
+                outimg.imgMeta.imgData[curpos] = LOW;
+                // 记录删除点数的 devchangecount 值加 1 。
+                *devchangecount = 1;
+            }
         }
     }
 }
 
 __host__ int Thinning::thinZSPtConFour(Image *inimg, Image *outimg)
 {
- // 局部变量，错误码。
+    // 局部变量，错误码。
     int errcode;  
     cudaError_t cudaerrcode; 
 
@@ -1053,68 +1326,65 @@ __host__ int Thinning::thinZSPtConFour(Image *inimg, Image *outimg)
     // 记录细化点数的变量，位于 device 端。并为其申请空间。
     cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
     if (cudaerrcode != cudaSuccess) {
-        // FAIL_THIN_IMAGE_FREE;
         return CUDA_ERROR;
     }
 
-    // 生成暂存图像。
-    errcode = ImageBasicOp::newImage(&tempimg);
-    if (errcode != NO_ERROR)
-        return errcode;
-    errcode = ImageBasicOp::makeAtCurrentDevice(tempimg, inimg->width, 
-                                                inimg->height);
-    if (errcode != NO_ERROR) {
-        // FAIL_THIN_IMAGE_FREE;
-        return errcode;
-    }
+     // 生成暂存图像。
+     errcode = ImageBasicOp::newImage(&tempimg);
+     if (errcode != NO_ERROR)
+         return errcode;
+     errcode = ImageBasicOp::makeAtCurrentDevice(tempimg, inimg->width, 
+                                                 inimg->height);
+     if (errcode != NO_ERROR) {
+         return errcode;
+     }
 
-    // 将输入图像 inimg 完全拷贝到输出图像 outimg ，并将 outimg 拷贝到 
-    // device 端。
-    errcode = ImageBasicOp::copyToCurrentDevice(inimg, outimg);
-    if (errcode != NO_ERROR) {
-        // FAIL_THIN_IMAGE_FREE;
-        return errcode;
-    }
+     // 将输入图像 inimg 完全拷贝到输出图像 outimg ，并将 outimg 拷贝到 
+     // device 端。
+     errcode = ImageBasicOp::copyToCurrentDevice(inimg, outimg);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
+     
+     // 提取输出图像
+     ImageCuda outsubimgCud;
+     errcode = ImageBasicOp::roiSubImage(outimg, &outsubimgCud);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
 
-    // 提取输出图像
-    ImageCuda outsubimgCud;
-    errcode = ImageBasicOp::roiSubImage(outimg, &outsubimgCud);
-    if (errcode != NO_ERROR) {
-        // FAIL_THIN_IMAGE_FREE;
-        return errcode;
-    }
+     // 提取暂存图像
+     ImageCuda tempsubimgCud;
+     errcode = ImageBasicOp::roiSubImage(tempimg, &tempsubimgCud);
+     if (errcode != NO_ERROR) {
+         // FAIL_THIN_IMAGE_FREE;
+         return errcode;
+     }
 
-    // 提取暂存图像
-    ImageCuda tempsubimgCud;
-    errcode = ImageBasicOp::roiSubImage(tempimg, &tempsubimgCud);
-    if (errcode != NO_ERROR) {
-        // FAIL_THIN_IMAGE_FREE;
-        return errcode;
-    }
+     // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
+     dim3 gridsize, blocksize;
+     blocksize.x = DEF_BLOCK_X;
+     blocksize.y = DEF_BLOCK_Y;
+     gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
+     gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y * 3 - 1) / blocksize.y * 3;
 
-    // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
-    dim3 gridsize, blocksize;
-    blocksize.x = DEF_BLOCK_X;
-    blocksize.y = DEF_BLOCK_Y;
-    gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
-    gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y * 4 - 1) / blocksize.y * 4;
+     // 赋值为 1，以便开始第一次迭代。
+     changeCount = 1;
 
-    // 赋值为 1，以便开始第一次迭代。
-    changeCount = 1;
-
-    // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
-    // 停止迭代。 
-    while (changeCount > 0) {
+     // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
+     // 停止迭代。 
+     while (changeCount > 0) {
         // 将 host 端的变量赋值为 0 ，并将值拷贝到 device 端的 devchangecount。
         changeCount = 0;
         cudaerrcode = cudaMemcpy(devchangecount, &changeCount, sizeof (int),
-                                 cudaMemcpyHostToDevice);
+                              cudaMemcpyHostToDevice);
         if (cudaerrcode != cudaSuccess) {
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
+         return CUDA_ERROR;
         }
 
-        // copy ouimg to tempimg 
+         // copy ouimg to tempimg 
          cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
                                       outimg->imgData, outsubimgCud.deviceId, 
                                       outsubimgCud.pitchBytes * outimg->height);
@@ -1122,25 +1392,42 @@ __host__ int Thinning::thinZSPtConFour(Image *inimg, Image *outimg)
          if (cudaerrcode != cudaSuccess) {
              return CUDA_ERROR;
          }
-            
-        // 调用核函数，开始第一步细化操作。
-        _thinZSPtConFourKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
-        if (cudaGetLastError() != cudaSuccess) {
-            // 核函数出错，结束迭代函数，释放申请的变量空间。
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }    
-        
-        // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
-        // 变量，进行迭代判断。
-        cudaerrcode = cudaMemcpy(&changeCount, devchangecount, sizeof (int),
-                                 cudaMemcpyDeviceToHost);
-        if (cudaerrcode != cudaSuccess) {
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }
 
-   }
+         // 调用核函数，开始第一步细化操作。
+         _thinZSPtConFour1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         if (cudaGetLastError() != cudaSuccess) {
+             // 核函数出错，结束迭代函数，释放申请的变量空间。
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }
+
+         // copy ouimg to tempimg 
+         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                      outimg->imgData, outsubimgCud.deviceId, 
+                                      outsubimgCud.pitchBytes * outimg->height);
+        
+         if (cudaerrcode != cudaSuccess) {
+             return CUDA_ERROR;
+         }
+
+         // 调用核函数，开始第二步细化操作。
+         _thinZSPtConFour2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         if (cudaGetLastError() != cudaSuccess) {
+             // 核函数出错，结束迭代函数，释放申请的变量空间 。
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }     
+        
+         // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
+         // 变量，进行迭代判断。
+         cudaerrcode = cudaMemcpy(&changeCount, devchangecount, sizeof (int),
+                                  cudaMemcpyDeviceToHost);
+         if (cudaerrcode != cudaSuccess) {
+             // FAIL_THIN_IMAGE_FREE;
+             return CUDA_ERROR;
+         }
+
+    }
 
     // 细化结束后释放申请的变量空间。
     cudaFree(devchangecount);
@@ -1148,4 +1435,3 @@ __host__ int Thinning::thinZSPtConFour(Image *inimg, Image *outimg)
 
     return NO_ERROR;
 }
-*/

@@ -36,10 +36,10 @@ public:
     }
 
     __host__ int thinZS(Image *inimg, Image *outimg);
-    // __host__ int thinZSFour(Image *inimg, Image *outimg);
+    __host__ int thinZSFour(Image *inimg, Image *outimg);
     __host__ int thinZSPt(Image *inimg, Image *outimg);
-    // __host__ int thinZSPtCon(Image *inimg, Image *outimg);
-    // __host__ int thinZSPtConFour(Image *inimg, Image *outimg);
+    __host__ int thinZSPtCon(Image *inimg, Image *outimg);
+    __host__ int thinZSPtConFour(Image *inimg, Image *outimg);
 };
 
 #endif
