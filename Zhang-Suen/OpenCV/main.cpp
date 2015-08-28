@@ -3,6 +3,11 @@
  */
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <iostream>
+#include <string>
+using namespace std;
+using namespace cv;
+
 
 /**
  * Perform one thinning iteration.
@@ -78,7 +83,7 @@ int main(int argc, const char **argv)
       return 0;
     }
 
-    cv::Mat src = cv::imread("test_image.png");
+    cv::Mat src = cv::imread(argv[1]);
     if (src.empty())
         return -1;
 
@@ -89,18 +94,17 @@ int main(int argc, const char **argv)
     clock_t start,finish;
     double totaltime;
 
-    thinning(bw);
 
     start=clock();
     for (int i = 0; i < 100; ++i)
-        HanThinningPt(inimg, outimg);
+        thinning(bw);
     finish=clock();
     totaltime=(double)(finish-start)*10/CLOCKS_PER_SEC;
-    cout<<"\nHanThinningPt runTime = "<<totaltime <<"ms！"<<endl;
+    cout<<"\nZhang-Sune_Thinning runTime = "<<totaltime <<"ms！"<<endl;
 
     string str(argv[1]);
     str = "out-" + str.substr(10);
-    imwrite( str, outimg);
+    imwrite( str, bw);
     
     cv::waitKey(0);
 
