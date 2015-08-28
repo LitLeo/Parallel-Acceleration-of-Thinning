@@ -22,7 +22,7 @@ using namespace std;
 #define HIGH 255
 #define LOW 0
 
-static __global__ void _thinZS1Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+static __global__ void _thinPet1Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -31,8 +31,8 @@ static __global__ void _thinZS1Ker(ImageCuda tempimg, ImageCuda outimg, int *dev
 
     // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
     // 另一方面防止由于段错误导致程序崩溃。
-    if (dstc >= tempimg.imgMeta.width - 1 || 
-     dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
+    if (dstc >= tempimg.imgMeta.width - 2 || 
+     dstr >= tempimg.imgMeta.height - 2 || dstc < 2 || dstr < 2)
      return;
 
     // 定义目标点位置的指针。
@@ -51,28 +51,29 @@ static __global__ void _thinZS1Ker(ImageCuda tempimg, ImageCuda outimg, int *dev
         int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
         int posColumn2 = posColumn1 + tempimg.pitchBytes;
         int posColumn3 = posColumn2 + tempimg.pitchBytes;
+        int posColumn4 = posColumn3 + tempimg.pitchBytes;
 
-        // p1 p2 p3
-        // p8    p4
-        // p7 p6 p5
-        unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1] == HIGH;
-        unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1] == HIGH;
-        unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1] == HIGH;
-        unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2] == HIGH;
-        unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3] == HIGH;
-        unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3] == HIGH;
-        unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3] == HIGH;
-        unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2] == HIGH;
+        uchar x1 = tempimg.imgMeta.imgData[posColumn2 + 1 + dstc] == HIGH;
+        uchar x2 = tempimg.imgMeta.imgData[posColumn1 + 1 + dstc] == HIGH;
+        uchar x3 = tempimg.imgMeta.imgData[posColumn1     + dstc] == HIGH;
+        uchar x4 = tempimg.imgMeta.imgData[posColumn1 + 1 + dstc] == HIGH;
+        uchar x5 = tempimg.imgMeta.imgData[posColumn2 + 1 + dstc] == HIGH;
+        uchar x6 = tempimg.imgMeta.imgData[posColumn3 + 1 + dstc] == HIGH;
+        uchar x7 = tempimg.imgMeta.imgData[posColumn3     + dstc] == HIGH;
+        uchar x8 = tempimg.imgMeta.imgData[posColumn3 + 1 + dstc] == HIGH;
+        // uchar y1 = tempimg.imgMeta.imgData[posColumn4 + 1 + dstc] == HIGH;
+        uchar y2 = tempimg.imgMeta.imgData[posColumn4     + dstc] == HIGH;
+        // uchar y3 = tempimg.imgMeta.imgData[posColumn4 + 1 + dstc] == HIGH;
+        // uchar y4 = tempimg.imgMeta.imgData[posColumn1 + 2 + dstc] == HIGH;
+        uchar y5 = tempimg.imgMeta.imgData[posColumn2 + 2 + dstc] == HIGH;
+        // uchar y6 = tempimg.imgMeta.imgData[posColumn3 + 2 + dstc] == HIGH;
 
-        int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) + 
-                 (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) + 
-                 (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
-                 (p8 == 0 && p1 == 1) + (p1 == 0 && p2 == 1);
-        int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p1;
-        int m1 = (p2 * p4 * p6);
-        int m2 = (p4 * p6 * p8);
-
-        if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0) {
+        int A  = (x2 ^ x3) + (x3 ^ x4) + (x4 ^ x5) + (x5 ^ x6) + 
+                 (x6 ^ x7) + (x7 ^ x8) + (x8 ^ x1) + (x1 ^ x2);
+        int B  = x2 + x3 + x4 + x5 + x6 + x7 + x8 + x1;
+        int R = x1 && x7 && x8 &&
+               ((!y5 && x2 && x3 && !x5) || (!y2 && !x3 && x5 && x6));
+        if (A == 2 && B >= 2 && B <= 6 && R == 0) {
             outimg.imgMeta.imgData[curpos] = LOW;
             // 记录删除点数的 devchangecount 值加 1 。
             *devchangecount = 1;
@@ -80,7 +81,7 @@ static __global__ void _thinZS1Ker(ImageCuda tempimg, ImageCuda outimg, int *dev
     }
 }
 
-static __global__ void _thinZS2Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+static __global__ void _thinPet2Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -89,8 +90,8 @@ static __global__ void _thinZS2Ker(ImageCuda tempimg, ImageCuda outimg, int *dev
 
     // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
     // 另一方面防止由于段错误导致程序崩溃。
-    if (dstc >= tempimg.imgMeta.width - 1 || 
-     dstr >= tempimg.imgMeta.height - 1 || dstc < 1 || dstr < 1)
+    if (dstc >= tempimg.imgMeta.width - 2 || 
+     dstr >= tempimg.imgMeta.height - 2 || dstc < 2 || dstr < 2)
      return;
 
     // 定义目标点位置的指针。
@@ -109,28 +110,29 @@ static __global__ void _thinZS2Ker(ImageCuda tempimg, ImageCuda outimg, int *dev
         int posColumn1 = (dstr - 1) * tempimg.pitchBytes;
         int posColumn2 = posColumn1 + tempimg.pitchBytes;
         int posColumn3 = posColumn2 + tempimg.pitchBytes;
+        // int posColumn4 = posColumn3 + tempimg.pitchBytes;
 
-        // p1 p2 p3
-        // p8    p4
-        // p7 p6 p5
-        unsigned char p1 = tempimg.imgMeta.imgData[dstc-1 + posColumn1] == HIGH;
-        unsigned char p2 = tempimg.imgMeta.imgData[dstc+    posColumn1] == HIGH;
-        unsigned char p3 = tempimg.imgMeta.imgData[dstc+1 + posColumn1] == HIGH;
-        unsigned char p4 = tempimg.imgMeta.imgData[dstc+1 + posColumn2] == HIGH;
-        unsigned char p5 = tempimg.imgMeta.imgData[dstc+1 + posColumn3] == HIGH;
-        unsigned char p6 = tempimg.imgMeta.imgData[dstc+    posColumn3] == HIGH;
-        unsigned char p7 = tempimg.imgMeta.imgData[dstc-1 + posColumn3] == HIGH;
-        unsigned char p8 = tempimg.imgMeta.imgData[dstc-1 + posColumn2] == HIGH;
+        uchar x1 = tempimg.imgMeta.imgData[posColumn2 + 1 + dstc] == HIGH;
+        uchar x2 = tempimg.imgMeta.imgData[posColumn1 + 1 + dstc] == HIGH;
+        uchar x3 = tempimg.imgMeta.imgData[posColumn1     + dstc] == HIGH;
+        uchar x4 = tempimg.imgMeta.imgData[posColumn1 + 1 + dstc] == HIGH;
+        uchar x5 = tempimg.imgMeta.imgData[posColumn2 + 1 + dstc] == HIGH;
+        uchar x6 = tempimg.imgMeta.imgData[posColumn3 + 1 + dstc] == HIGH;
+        uchar x7 = tempimg.imgMeta.imgData[posColumn3     + dstc] == HIGH;
+        uchar x8 = tempimg.imgMeta.imgData[posColumn3 + 1 + dstc] == HIGH;
+        // uchar y1 = tempimg.imgMeta.imgData[posColumn4 + 1 + dstc] == HIGH;
+        // uchar y2 = tempimg.imgMeta.imgData[posColumn4     + dstc] == HIGH;
+        // uchar y3 = tempimg.imgMeta.imgData[posColumn4 + 1 + dstc] == HIGH;
+        // uchar y4 = tempimg.imgMeta.imgData[posColumn1 + 2 + dstc] == HIGH;
+        // uchar y5 = tempimg.imgMeta.imgData[posColumn2 + 2 + dstc] == HIGH;
+        // uchar y6 = tempimg.imgMeta.imgData[posColumn3 + 2 + dstc] == HIGH;
 
-        int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) + 
-                 (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) + 
-                 (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
-                 (p8 == 0 && p1 == 1) + (p1 == 0 && p2 == 1);
-        int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p1;
-        int m1 = (p2 * p4 * p8);
-        int m2 = (p2 * p6 * p8);
-
-        if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0) {
+        int S0 = (x3&&x7) || (x5&&x1);
+        int S1 = (x1 && !x6 && (!x4 || x3)) || (x3 && !x8 && (!x6 || x5)) ||
+            (x7 && !x4 && (!x2 || x1)) || (x5 && !x2 && (!x8 || x7));
+        int B  = x2 + x3 + x4 + x5 + x6 + x7 + x8 + x1;
+        int R = (x3 && (x1&&!x8 || x5&&!x6)) || (x7 && (!x5&&!x8 || !x1&&!x6));
+        if ((!S0 && S1) && R == 0 && B >= 3) {
             outimg.imgMeta.imgData[curpos] = LOW;
             // 记录删除点数的 devchangecount 值加 1 。
             *devchangecount = 1;
@@ -140,7 +142,7 @@ static __global__ void _thinZS2Ker(ImageCuda tempimg, ImageCuda outimg, int *dev
 
 // 直接并行化
 // 线程数，处理多少个点有多少线程数
-__host__ int Thinning::thinZS(Image *inimg, Image *outimg)
+__host__ int Thinning::thinPet(Image *inimg, Image *outimg)
 {
     // 局部变量，错误码。
      int errcode;  
@@ -228,7 +230,7 @@ __host__ int Thinning::thinZS(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第一步细化操作。
-         _thinZS1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         _thinPet1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间。
              // FAIL_THIN_IMAGE_FREE;
@@ -245,7 +247,7 @@ __host__ int Thinning::thinZS(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第二步细化操作。
-         _thinZS2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         _thinPet2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间 。
              // FAIL_THIN_IMAGE_FREE;
@@ -268,7 +270,8 @@ __host__ int Thinning::thinZS(Image *inimg, Image *outimg)
      return NO_ERROR;
 }
 
-static __global__ void _thinZSFour1Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+/*
+static __global__ void _thinPetFour1Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -368,7 +371,7 @@ static __global__ void _thinZSFour1Ker(ImageCuda tempimg, ImageCuda outimg, int 
     }
 }
 
-static __global__ void _thinZSFour2Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+static __global__ void _thinPetFour2Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -469,7 +472,7 @@ static __global__ void _thinZSFour2Ker(ImageCuda tempimg, ImageCuda outimg, int 
 
 // 直接并行化
 // 线程数，处理多少个点有多少线程数
-__host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
+__host__ int Thinning::thinPetFour(Image *inimg, Image *outimg)
 {
     // 局部变量，错误码。
      int errcode;  
@@ -557,7 +560,7 @@ __host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第一步细化操作。
-         _thinZSFour1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         _thinPetFour1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间。
              // FAIL_THIN_IMAGE_FREE;
@@ -574,7 +577,7 @@ __host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第二步细化操作。
-         _thinZSFour2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         _thinPetFour2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间 。
              // FAIL_THIN_IMAGE_FREE;
@@ -597,7 +600,7 @@ __host__ int Thinning::thinZSFour(Image *inimg, Image *outimg)
      return NO_ERROR;
 }
 
-static __global__ void _thinZSPt1Ker(ImageCuda tempimg, ImageCuda outimg, 
+static __global__ void _thinPetPt1Ker(ImageCuda tempimg, ImageCuda outimg, 
                                      int *devchangecount, uchar *dev_lut)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
@@ -651,7 +654,7 @@ static __global__ void _thinZSPt1Ker(ImageCuda tempimg, ImageCuda outimg,
     }
 }
 
-static __global__ void _thinZSPt2Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount, uchar *dev_lut)
+static __global__ void _thinPetPt2Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount, uchar *dev_lut)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -704,7 +707,7 @@ static __global__ void _thinZSPt2Ker(ImageCuda tempimg, ImageCuda outimg, int *d
     }
 }
 
-__host__ int Thinning::thinZSPt(Image *inimg, Image *outimg)
+__host__ int Thinning::thinPetPt(Image *inimg, Image *outimg)
 {
     // 局部变量，错误码。
     int errcode;  
@@ -823,7 +826,7 @@ __host__ int Thinning::thinZSPt(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第一步细化操作。
-         _thinZSPt1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount, dev_lut);
+         _thinPetPt1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount, dev_lut);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间。
              // FAIL_THIN_IMAGE_FREE;
@@ -840,7 +843,7 @@ __host__ int Thinning::thinZSPt(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第二步细化操作。
-         _thinZSPt2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount, dev_lut);
+         _thinPetPt2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount, dev_lut);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间 。
              // FAIL_THIN_IMAGE_FREE;
@@ -886,7 +889,7 @@ __constant__ uchar con_lut[512] =
     1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0
 };
 
-static __global__ void _thinZSPtCon1Ker(ImageCuda tempimg, ImageCuda outimg, 
+static __global__ void _thinPetPtCon1Ker(ImageCuda tempimg, ImageCuda outimg, 
                                      int *devchangecount)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
@@ -940,7 +943,7 @@ static __global__ void _thinZSPtCon1Ker(ImageCuda tempimg, ImageCuda outimg,
     }
 }
 
-static __global__ void _thinZSPtCon2Ker(ImageCuda tempimg, ImageCuda outimg, 
+static __global__ void _thinPetPtCon2Ker(ImageCuda tempimg, ImageCuda outimg, 
                                      int *devchangecount)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
@@ -994,7 +997,7 @@ static __global__ void _thinZSPtCon2Ker(ImageCuda tempimg, ImageCuda outimg,
     }
 }
 
-__host__ int Thinning::thinZSPtCon(Image *inimg, Image *outimg)
+__host__ int Thinning::thinPetPtCon(Image *inimg, Image *outimg)
 {
     // 局部变量，错误码。
     int errcode;  
@@ -1082,7 +1085,7 @@ __host__ int Thinning::thinZSPtCon(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第一步细化操作。
-         _thinZSPtCon1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         _thinPetPtCon1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间。
              // FAIL_THIN_IMAGE_FREE;
@@ -1099,7 +1102,7 @@ __host__ int Thinning::thinZSPtCon(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第二步细化操作。
-         _thinZSPtCon2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         _thinPetPtCon2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间 。
              // FAIL_THIN_IMAGE_FREE;
@@ -1124,7 +1127,7 @@ __host__ int Thinning::thinZSPtCon(Image *inimg, Image *outimg)
     return NO_ERROR;
 }
 
-static __global__ void _thinZSPtConFour1Ker(ImageCuda tempimg, ImageCuda outimg, 
+static __global__ void _thinPetPtConFour1Ker(ImageCuda tempimg, ImageCuda outimg, 
                                      int *devchangecount)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
@@ -1215,7 +1218,7 @@ static __global__ void _thinZSPtConFour1Ker(ImageCuda tempimg, ImageCuda outimg,
     }
 }
 
-static __global__ void _thinZSPtConFour2Ker(ImageCuda tempimg, ImageCuda outimg, 
+static __global__ void _thinPetPtConFour2Ker(ImageCuda tempimg, ImageCuda outimg, 
                                      int *devchangecount)
 {
     // dstc 和 dstr 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
@@ -1306,7 +1309,7 @@ static __global__ void _thinZSPtConFour2Ker(ImageCuda tempimg, ImageCuda outimg,
     }
 }
 
-__host__ int Thinning::thinZSPtConFour(Image *inimg, Image *outimg)
+__host__ int Thinning::thinPetPtConFour(Image *inimg, Image *outimg)
 {
     // 局部变量，错误码。
     int errcode;  
@@ -1394,7 +1397,7 @@ __host__ int Thinning::thinZSPtConFour(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第一步细化操作。
-         _thinZSPtConFour1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         _thinPetPtConFour1Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间。
              // FAIL_THIN_IMAGE_FREE;
@@ -1411,7 +1414,7 @@ __host__ int Thinning::thinZSPtConFour(Image *inimg, Image *outimg)
          }
 
          // 调用核函数，开始第二步细化操作。
-         _thinZSPtConFour2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
+         _thinPetPtConFour2Ker<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
          if (cudaGetLastError() != cudaSuccess) {
              // 核函数出错，结束迭代函数，释放申请的变量空间 。
              // FAIL_THIN_IMAGE_FREE;
@@ -1434,4 +1437,4 @@ __host__ int Thinning::thinZSPtConFour(Image *inimg, Image *outimg)
     ImageBasicOp::deleteImage(tempimg);
 
     return NO_ERROR;
-}
+}*/

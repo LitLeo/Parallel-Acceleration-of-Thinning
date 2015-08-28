@@ -27,12 +27,12 @@ void PetThinSub1(Mat& tempimg, Mat& outimg, int& changecount)
                 uchar x6 = tempimg.at<uchar>(r + 1, c - 1);
                 uchar x7 = tempimg.at<uchar>(r + 1, c);
                 uchar x8 = tempimg.at<uchar>(r + 1, c + 1);
-                uchar y1 = tempimg.at<uchar>(r + 2, c - 1);
+                // uchar y1 = tempimg.at<uchar>(r + 2, c - 1);
                 uchar y2 = tempimg.at<uchar>(r + 2, c);
-                uchar y3 = tempimg.at<uchar>(r + 2, c + 1);
-                uchar y4 = tempimg.at<uchar>(r - 1, c + 2);
+                // uchar y3 = tempimg.at<uchar>(r + 2, c + 1);
+                // uchar y4 = tempimg.at<uchar>(r - 1, c + 2);
                 uchar y5 = tempimg.at<uchar>(r,     c + 2);
-                uchar y6 = tempimg.at<uchar>(r + 1, c + 2);
+                // uchar y6 = tempimg.at<uchar>(r + 1, c + 2);
                 int A  = (x2 ^ x3) + (x3 ^ x4) + (x4 ^ x5) + (x5 ^ x6) + 
                          (x6 ^ x7) + (x7 ^ x8) + (x8 ^ x1) + (x1 ^ x2);
                 int B  = x2 + x3 + x4 + x5 + x6 + x7 + x8 + x1;
@@ -60,12 +60,12 @@ void PetThinSub2(Mat& tempimg, Mat& outimg, int& changecount)
                 uchar x6 = tempimg.at<uchar>(r + 1, c - 1);
                 uchar x7 = tempimg.at<uchar>(r + 1, c);
                 uchar x8 = tempimg.at<uchar>(r + 1, c + 1);
-                uchar y1 = tempimg.at<uchar>(r + 2, c - 1);
-                uchar y2 = tempimg.at<uchar>(r + 2, c);
-                uchar y3 = tempimg.at<uchar>(r + 2, c + 1);
-                uchar y4 = tempimg.at<uchar>(r - 1, c + 2);
-                uchar y5 = tempimg.at<uchar>(r,     c + 2);
-                uchar y6 = tempimg.at<uchar>(r + 1, c + 2);
+                // uchar y1 = tempimg.at<uchar>(r + 2, c - 1);
+                // uchar y2 = tempimg.at<uchar>(r + 2, c);
+                // uchar y3 = tempimg.at<uchar>(r + 2, c + 1);
+                // uchar y4 = tempimg.at<uchar>(r - 1, c + 2);
+                // uchar y5 = tempimg.at<uchar>(r,     c + 2);
+                // uchar y6 = tempimg.at<uchar>(r + 1, c + 2);
                 int S0 = (x3&&x7) || (x5&&x1);
                 int S1 = (x1 && !x6 && (!x4 || x3)) || (x3 && !x8 && (!x6 || x5)) ||
                     (x7 && !x4 && (!x2 || x1)) || (x5 && !x2 && (!x8 || x7));
