@@ -36,10 +36,10 @@ public:
     }
 
     __host__ int thinPet(Image *inimg, Image *outimg);
-    // __host__ int thinPetFour(Image *inimg, Image *outimg);
-    // __host__ int thinPetPt(Image *inimg, Image *outimg);
-    // __host__ int thinPetPtCon(Image *inimg, Image *outimg);
-    // __host__ int thinPetPtConFour(Image *inimg, Image *outimg);
+    __host__ int thinPetFour(Image *inimg, Image *outimg);
+    __host__ int thinPetPt(Image *inimg, Image *outimg);
+    __host__ int thinPetPtCon(Image *inimg, Image *outimg);
+    __host__ int thinPetPtConFour(Image *inimg, Image *outimg);
 };
 
 #endif
