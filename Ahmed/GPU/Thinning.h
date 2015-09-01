@@ -38,8 +38,8 @@ public:
     __host__ int thinAhmed(Image *inimg, Image *outimg);
     __host__ int thinAhmedFour(Image *inimg, Image *outimg);
     __host__ int thinAhmedPt(Image *inimg, Image *outimg);
-    __host__ int thinAhmedPtCon(Image *inimg, Image *outimg);
-	__host__ int thinAhmedPtConFour(Image *inimg, Image *outimg);
+    // __host__ int thinAhmedPtCon(Image *inimg, Image *outimg);
+	__host__ int thinAhmedPtFour(Image *inimg, Image *outimg);
 };
 
 #endif

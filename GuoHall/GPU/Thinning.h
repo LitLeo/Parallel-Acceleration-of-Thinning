@@ -42,10 +42,6 @@ public:
     {
         this->highPixel = 255;  // 高像素值默认为 255。
         this->lowPixel = 0;     // 低像素值默认为 0。 
-
-        // 将转换器的标记数组清空，并将高像素位置为 true。
-        // this->imgCon.clearAllConvertFlags();
-        // this->imgCon.setConvertFlag(this->highPixel);
     }
 
     // 构造函数：Thinning
@@ -58,10 +54,6 @@ public:
     ) {
         this->highPixel = 255;        // 高像素值默认为 255。
         this->lowPixel = 0;           // 低像素值默认为 0。
-
-        // 将转换器的标记数组清空，并将高像素位置为 true。
-        // this->imgCon.clearAllConvertFlags();
-        // this->imgCon.setConvertFlag(this->highPixel);
 
         // 根据参数列表中的值设定成员变量的初值。
         this->setHighLowPixel(highPixel, lowPixel);
@@ -86,18 +78,8 @@ public:
         if (highpixel == this->lowPixel)
             return INVALID_DATA;
 
-        // 将转换器内的原先高像素位置为 false。此做法可使转换器的只有一个高像素
-        // 位。
-        // this->imgCon.clearConvertFlag(this->highPixel);
-
         // 将 highPixel 成员变量赋成新值
         this->highPixel = highpixel;
-
-        // 将转换器的高像素与本算法同步。
-        // this->imgCon.setHighPixel(this->highPixel);
-
-        // 将转换器的标记数组高像素位置为 true。
-        // this->imgCon.setConvertFlag(this->highPixel);
 
         return NO_ERROR;
     }
@@ -124,9 +106,6 @@ public:
         // 将 lowPixel 成员变量赋成新值。
         this->lowPixel = lowpixel;
 
-        // 将转换器的低像素与本算法同步。
-        // this->imgCon.setLowPixel(this->lowPixel);
-
         return NO_ERROR;
     }
 
@@ -141,48 +120,38 @@ public:
         if (highpixel == lowpixel)
             return INVALID_DATA;
 
-        // 将转换器内的原先高像素位置为 false。此做法可使转换器的只有一个高像素
-        // 位。
-        // this->imgCon.clearConvertFlag(this->highPixel);
-
         // 将 highPixel 成员变量赋成新值。
         this->highPixel = highpixel;
 
         // 将 lowPixel 成员变量赋成新值。
         this->lowPixel = lowpixel;
 
-        // 将转换器的高像素和低像素与本算法同步。
-        // this->imgCon.setHighPixel(this->highPixel); 
-        // this->imgCon.setLowPixel(this->lowPixel);
-
-        // 将转换器的标记数组高像素位置为 true。
-        // this->imgCon.setConvertFlag(this->highPixel);
-
         return NO_ERROR;
     }
 
-    // 成员方法：thinMatlabLike（细化边界 - PATTERN 表法）
-    // 该算法是 Thinning 算法的另一个子算法。通过建立 4 个 PATTERN 表，使用 
-    // 3 × 3 的模板，模板包含 9 个像素，对模板中像素赋予权重值，通过判断目标
-    // 点周围 8 邻域的特性得出该点在 PATTERN 表中的索引，根据索引值在 
-    // PATTERN 表中对应的值来判断该点是否删除。
-    __host__ int           // 返回值：函数是否正确执行，若函数正确执行，返回
-                           // NO_ERROR。
-    thinMatlabLike(
-            Image *inimg,  // 输入图像
-            Image *outimg  // 输出图像
-    );
 	__host__ int 
-	thinnGuoHall(
+	thinnGpu(
 			Image *inimg,
 			Image *outimg
 	);
 
-	// __host__ int 
-	// thinZhangSuen(
-	// 		Image *inimg,
-	// 		Image *outimg
-	// );
+    __host__ int 
+    thinGpuFour(
+            Image *inimg,
+            Image *outimg
+    );
+
+    __host__ int 
+    thinGpuPt(
+            Image *inimg,
+            Image *outimg
+    );
+    __host__ int 
+    thinGpuPtFour(
+            Image *inimg,
+            Image *outimg
+    );
+
 
 };
 
