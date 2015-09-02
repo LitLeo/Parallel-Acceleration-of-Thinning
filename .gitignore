@@ -34,4 +34,4 @@ main.cu
 CMakeLists.txt
 
 
-img/*
+*.bmp
