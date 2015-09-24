@@ -352,8 +352,8 @@ static __global__ void _thinAhmedPtKer(ImageCuda tempimg, ImageCuda outimg,
                               isHigh1(x5) * 16 + isHigh1(x6) * 32 + isHigh1(x7) * 64 + isHigh1(x8) * 128;
         
         if (dev_lut[index] == 1) {
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
+			outimg.imgMeta.imgData[curpos] = LOW;
+			*devchangecount = 1;
         }       
     }
 }
