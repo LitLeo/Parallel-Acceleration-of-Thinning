@@ -200,10 +200,11 @@ __host__ int Thinning::thinZS(Image *inimg, Image *outimg)
 
      // 赋值为 1，以便开始第一次迭代。
      changeCount = 1;
-
+     // int iter_num = 0;
      // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
      // 停止迭代。 
      while (changeCount > 0) {
+        // iter_num ++;
          // 将 host 端的变量赋值为 0 ，并将值拷贝到 device 端的 devchangecount。
          changeCount = 0;
          cudaerrcode = cudaMemcpy(devchangecount, &changeCount, sizeof (int),
@@ -256,10 +257,11 @@ __host__ int Thinning::thinZS(Image *inimg, Image *outimg)
          }
 
     }
-     // 细化结束后释放申请的变量空间。
-     cudaFree(devchangecount);
-     ImageBasicOp::deleteImage(tempimg);
-     return NO_ERROR;
+    // cout << "thinZS iter_num = " << iter_num << endl;
+    // 细化结束后释放申请的变量空间。
+    cudaFree(devchangecount);
+    ImageBasicOp::deleteImage(tempimg);
+    return NO_ERROR;
 }
 
 static __global__ void _thinZSFour1Ker(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)

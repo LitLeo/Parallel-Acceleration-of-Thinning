@@ -139,8 +139,9 @@ __host__ int Thinning::thinGpu(Image *inimg, Image *outimg)
     gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y - 1) / blocksize.y;
 
     changeCount = 1;
-
+    // int iter_num = 0;
     while (changeCount > 0) {
+        // iter_num ++;
         changeCount = 0;
         cudaerrcode = cudaMemcpy(devchangecount, &changeCount, sizeof (int),
                               cudaMemcpyHostToDevice);
@@ -183,7 +184,7 @@ __host__ int Thinning::thinGpu(Image *inimg, Image *outimg)
         }
 
     }
-
+    // cout << "thinGH iter_num = " << iter_num << endl;
     cudaFree(devchangecount);
     ImageBasicOp::deleteImage(tempimg);
 

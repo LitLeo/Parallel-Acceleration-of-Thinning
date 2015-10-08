@@ -16,7 +16,7 @@ using namespace cv;
  * @param  im    Binary image with range = 0-1
  * @param  iter  0=even, 1=odd
  */
-void thinningIteration(cv::Mat& im, int iter)
+void thinningIteration(cv::Mat& im, int iter, int& diff)
 {
     cv::Mat marker = cv::Mat::zeros(im.size(), CV_8UC1);
 
@@ -24,25 +24,29 @@ void thinningIteration(cv::Mat& im, int iter)
     {
         for (int j = 1; j < im.cols-1; j++)
         {
-            uchar p2 = im.at<uchar>(i-1, j);
-            uchar p3 = im.at<uchar>(i-1, j+1);
-            uchar p4 = im.at<uchar>(i, j+1);
-            uchar p5 = im.at<uchar>(i+1, j+1);
-            uchar p6 = im.at<uchar>(i+1, j);
-            uchar p7 = im.at<uchar>(i+1, j-1);
-            uchar p8 = im.at<uchar>(i, j-1);
-            uchar p9 = im.at<uchar>(i-1, j-1);
+            if(im.at<uchar>(i,j) == 1) {
+                uchar p2 = im.at<uchar>(i-1, j);
+                uchar p3 = im.at<uchar>(i-1, j+1);
+                uchar p4 = im.at<uchar>(i, j+1);
+                uchar p5 = im.at<uchar>(i+1, j+1);
+                uchar p6 = im.at<uchar>(i+1, j);
+                uchar p7 = im.at<uchar>(i+1, j-1);
+                uchar p8 = im.at<uchar>(i, j-1);
+                uchar p9 = im.at<uchar>(i-1, j-1);
 
-            int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) + 
-                     (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) + 
-                     (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
-                     (p8 == 0 && p9 == 1) + (p9 == 0 && p2 == 1);
-            int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
-            int m1 = iter == 0 ? (p2 * p4 * p6) : (p2 * p4 * p8);
-            int m2 = iter == 0 ? (p4 * p6 * p8) : (p2 * p6 * p8);
+                int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) + 
+                         (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) + 
+                         (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
+                         (p8 == 0 && p9 == 1) + (p9 == 0 && p2 == 1);
+                int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
+                int m1 = iter == 0 ? (p2 * p4 * p6) : (p2 * p4 * p8);
+                int m2 = iter == 0 ? (p4 * p6 * p8) : (p2 * p6 * p8);
 
-            if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0)
-                marker.at<uchar>(i,j) = 1;
+                if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0){
+                    marker.at<uchar>(i,j) = 1;
+                    diff = 1;
+                }
+            }
         }
     }
 
@@ -54,22 +58,17 @@ void thinningIteration(cv::Mat& im, int iter)
  *
  * @param  im  Binary image with range = 0-255
  */
-void thinning(cv::Mat& im)
+void thinning(Mat& inimg, Mat& outimg)
 {
-    im /= 255;
-
-    cv::Mat prev = cv::Mat::zeros(im.size(), CV_8UC1);
-    cv::Mat diff;
-
+    int diff = 0;
+    inimg.copyTo(outimg);
     do {
-        thinningIteration(im, 0);
-        thinningIteration(im, 1);
-        cv::absdiff(im, prev, diff);
-        im.copyTo(prev);
+        // cout << "diff = " << diff << endl;
+        diff = 0;
+        thinningIteration(outimg, 0, diff);
+        thinningIteration(outimg, 1, diff);
     } 
-    while (cv::countNonZero(diff) > 0);
-
-    im *= 255;
+    while (diff != 0); 
 }
 
 /**
@@ -82,29 +81,30 @@ int main(int argc, const char **argv)
       cout << "Please input image!" << endl;
       return 0;
     }
-
-    cv::Mat src = cv::imread(argv[1]);
-    if (src.empty())
+    Mat inimg = cv::imread(argv[1], 0);
+    if (inimg.empty())
         return -1;
+    inimg /= 255;
 
-    cv::Mat bw;
-    cv::cvtColor(src, bw, CV_BGR2GRAY);
-    cv::threshold(bw, bw, 10, 255, CV_THRESH_BINARY);
+    Mat outimg(inimg.size(), CV_8UC1);
+    
 
     clock_t start,finish;
     double totaltime;
-
-
     start=clock();
-    for (int i = 0; i < 100; ++i)
-        thinning(bw);
+
+    for (int i = 0; i < 100; i++)
+    {
+        thinning(inimg, outimg);
+    }
+
     finish=clock();
     totaltime=(double)(finish-start)*10/CLOCKS_PER_SEC;
     cout<<"\nZhang-Sune_Thinning runTime = "<<totaltime <<"ms！"<<endl;
 
     string str(argv[1]);
     str = "out-" + str.substr(10);
-    imwrite( str, bw);
+    imwrite( str, outimg * 255);
     
     cv::waitKey(0);
 
