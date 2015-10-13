@@ -23,8 +23,12 @@ protected:
     // 成员变量：imgCon（图像与坐标集之间的转化器）
     // 当参数为坐标集时，实现坐标集与图像的相互转化。
     // ImgConvert imgCon;
+    // 
+
     
 public:
+    int DEF_BLOCK_X;
+    int DEF_BLOCK_Y;
 
     // 构造函数：Thinning
     // 无参数版本的构造函数，所有的成员变量皆初始化为默认值。
@@ -33,6 +37,9 @@ public:
     {
         this->highPixel = 255;  // 高像素值默认为 255。
         this->lowPixel = 0;     // 低像素值默认为 0。 
+
+        DEF_BLOCK_X = 32;
+        DEF_BLOCK_Y =  8;
     }
 
     __host__ int thinAhmed(Image *inimg, Image *outimg);
