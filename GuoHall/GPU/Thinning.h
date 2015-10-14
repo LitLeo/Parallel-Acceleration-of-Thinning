@@ -34,6 +34,8 @@ protected:
     // ImgConvert imgCon;
     
 public:
+    unsigned int DEF_BLOCK_X;
+    unsigned int DEF_BLOCK_Y;
 
     // 构造函数：Thinning
     // 无参数版本的构造函数，所有的成员变量皆初始化为默认值。
@@ -42,6 +44,8 @@ public:
     {
         this->highPixel = 255;  // 高像素值默认为 255。
         this->lowPixel = 0;     // 低像素值默认为 0。 
+        DEF_BLOCK_Y = 8;
+        DEF_BLOCK_X = 32;
     }
 
     // 构造函数：Thinning
@@ -130,7 +134,7 @@ public:
     }
 
 	__host__ int 
-	thinnGpu(
+	thinGpu(
 			Image *inimg,
 			Image *outimg
 	);

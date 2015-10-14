@@ -2,9 +2,6 @@
 #include <iostream>
 using namespace std;
 
-#define DEF_BLOCK_X  32
-#define DEF_BLOCK_Y   8
-
 static __global__ void _thinGpuIter1Ker(ImageCuda outimg, ImageCuda tempimg, int *devchangecount,
                                             unsigned char highpixel, unsigned char lowpixel)
 {
