@@ -44,6 +44,8 @@ public:
 
     __host__ int thinAhmed(Image *inimg, Image *outimg);
     __host__ int thinAhmedPt(Image *inimg, Image *outimg);
+    __host__ int thinAhmedPtShared(Image *inimg, Image *outimg);
+    __host__ int thinAhmedPtConstant(Image *inimg, Image *outimg);
 };
 
 #endif
