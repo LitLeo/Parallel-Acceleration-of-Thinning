@@ -1,0 +1,142 @@
+%-----------------------------------------------------------------------------
+%
+%               Template for sigplanconf LaTeX Class
+%
+% Name:         sigplanconf-template.tex
+%
+% Purpose:      A template for sigplanconf.cls, which is a LaTeX 2e class
+%               file for SIGPLAN conference proceedings.
+%
+% Guide:        Refer to "Author's Guide to the ACM SIGPLAN Class,"
+%               sigplanconf-guide.pdf
+%
+% Author:       Paul C. Anagnostopoulos
+%               Windfall Software
+%               978 371-2316
+%               paul@windfall.com
+%
+% Created:      15 February 2005
+%
+%-----------------------------------------------------------------------------
+
+
+\documentclass{sigplanconf}
+
+% The following \documentclass options may be useful:
+
+% preprint      Remove this option only once the paper is in final form.
+% 10pt          To set in 10-point type instead of 9-point.
+% 11pt          To set in 11-point type instead of 9-point.
+% authoryear    To obtain author/year citation style instead of numeric.
+
+\usepackage{amsmath}
+
+
+\begin{document}
+
+\special{papersize=8.5in,11in}
+\setlength{\pdfpageheight}{\paperheight}
+\setlength{\pdfpagewidth}{\paperwidth}
+
+\conferenceinfo{CONF 'yy}{Month d--d, 20yy, City, ST, Country} 
+\copyrightyear{20yy} 
+\copyrightdata{978-1-nnnn-nnnn-n/yy/mm} 
+\doi{nnnnnnn.nnnnnnn}
+
+% Uncomment one of the following two, if you are not going for the 
+% traditional copyright transfer agreement.
+
+%\exclusivelicense                % ACM gets exclusive license to publish, 
+                                  % you retain copyright
+
+%\permissiontopublish             % ACM gets nonexclusive license to publish
+                                  % (paid open-access papers, 
+                                  % short abstracts)
+
+\titlebanner{banner above paper title}        % These are ignored unless
+\preprintfooter{short description of paper}   % 'preprint' option specified.
+
+\title{A improved GPGPU-accelerated parallelization for a rotation invariant Thinning algorithm}
+% \subtitle{Subtitle Text, if any}
+
+\authorinfo{Weiguang Yang}
+           {School of Software Technology, Dalian University of Technology, Dalian, China}
+           {lityangweiguang@163.com}
+% \authorinfo{Name2\and Name3}
+%            {Affiliation2/3}
+%            {Email2/3}
+
+\maketitle
+
+\begin{abstract}
+This is the text of the abstract.
+\end{abstract}
+
+\category{CR-number}{subcategory}{third-level}
+
+% general terms are not compulsory anymore, 
+% you may leave them out
+\terms
+term1, term2
+
+\keywords
+keyword1, keyword2
+
+\section{Introduction}
+
+% 第一段，细化定义介绍、细化算法的重要性，举例
+Thinning is the process of reducing the thickness of each line of patterns to just a single pixel. Thinning is an important pre-processing step for many image analysis operation, such as image processing, character recognition, pattern recognition and so on.
+
+% 第二段，细化算法的分类。细化算法分为两大类，parallel和sequential。Parallel下又能分为三类。
+A comprehensive survey of thinning algorithms is described by Lam et al. in this paper, the author reviewed about 100 thinning algorithms. There two kinds of the thinning algorithm, the sequential thinning algorithm(STAs) and the parallel thinning algorithm(PTAs). As PTAs scan remove all the contour pixels that should be deleted in one iteration rather than only one pixel like STAs. So PTAs are usually faster than SPAS. There are three classes of PTAs: n-subiteration parallel Thinning algorithms, n-subfield parallel Thinning parallel algorithms and fully parallel Thinning algorithms. 
+
+% 第三段，随着图像大小的增大，目前细化算法的问题是运行时间过长，很难实现real-time。比如，Ahmed算法在细化2048*2048大小图像需要十几秒。Kim在FPGA上实现了2D 细化算法并取得了很好的加速比，但是FPGA很难实现。Hu BingFeng在GPU上实现了3D细化算法，取得了152x的加速比。
+With the increase of image size, such as satellite image and medi6cal image, result in the longer execution time of thinning algorithms. For example, thinning a 2D image(2048*2048) takes about 17s on i7 CPU platform by using the A-W algorithm. It is a challenge to implement thinning algorithms in real-time. K.Kim et al implemented a PTA by using FPGA , but the implement is hard for general engineer and it limits the image size. Hu BingFeng et al implement 12- subiteration parallel 3D thinning algorithm on GPU and the speed-up achieved was 152x.
+
+% 第四段，简单介绍cuda，并根据实验得出并行细化算法在GPU上能够得到很好的加速比。但是A-W算法的结果并不理想，因为该算法内存在很多分支，影响性能。
+With the multi-thread parallel processing power, many problems, such as large data sets and intensive computation, can be resolved efficiently on GPGPU.as s modern GPU architecture, Compute Unified Device Architecture (CUDA) is supported by Nvidia GPUs for general-purpose parallel computing. The parallel thinning algorithms can be well implement on GPU computation plat form owing to its data parallelism. we implement several parallel thinning algorithms(PTAs) on GPU in figure 1.Figure 1 results show PTAs achieves a good performance on average 60 speed up improvement. But the speedup of A-W algorithm is not ideal. Because there are too many branch s in the algorithm flow which will lead a low warp efficiency. 
+
+% 在这篇论文中的主要贡献。1、证明PTAs在GPU上能够取得很好的加速比。2、在A-W的基础上，提出了一种新的并行策略，提高性能。3、我们讨论了性能与block大小、LookUp-Table的内存位置的关系。
+    In this paper, we manly focus on A-W algorithm, improved the algorithm with a look-up table, which decrease the branch. This paper makes the following contributions.
+1. we implement several parallel thinning algorithms(PTAs) on GPU and proved the PATs could obtain a good speedup on GPU.
+2. we present a novel and sample parallel strategy on A-W algorithm which could decrease the branch and logic complexity.
+3.  we discussed in detail about the relationship between the speedup 
+
+% 论文余下部分的组织。
+The rest of the paper is organized as follows. Section 2 briefly describe the A-W algorithm. Then section 3 illustrates the detailed design of A-W algorithm on CUDA. Experimental analysis and results are shown in Section4 and Finally we offer the future work and conclusion in Section5.
+
+
+
+\appendix
+\section{Appendix Title}
+
+This is the text of the appendix, if you need one.
+
+\acks
+
+Acknowledgments, if needed.
+
+% We recommend abbrvnat bibliography style.
+
+\bibliographystyle{abbrvnat}
+
+% The bibliography should be embedded for final submission.
+
+\begin{thebibliography}{}
+\softraggedright
+
+\bibitem[Smith et~al.(2009)Smith, Jones]{smith02}
+P. Q. Smith, and X. Y. Jones. ...reference text...
+
+\end{thebibliography}
+
+
+\end{document}
+
+%                       Revision History
+%                       -------- -------
+%  Date         Person  Ver.    Change
+%  ----         ------  ----    ------
+
+%  2013.06.29   TU      0.1--4  comments on permission/copyright notices
+
