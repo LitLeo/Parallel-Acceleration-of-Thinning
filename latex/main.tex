@@ -30,7 +30,10 @@
 % authoryear    To obtain author/year citation style instead of numeric.
 
 \usepackage{amsmath}
-
+\usepackage{graphics}
+\usepackage{clrscode3e}
+\usepackage{algorithm}
+\usepackage{algorithmic}
 
 \begin{document}
 
@@ -83,6 +86,52 @@ term1, term2
 keyword1, keyword2
 
 \section{Introduction}
+
+
+
+\begin{algorithm}
+  \caption{Calculate $y = x^n$}
+  \label{alg1}
+  \begin{algorithmic}
+  \REQUIRE $n \geq 0 \vee x \neq 0$
+  \ENSURE $y = x^n$
+  \STATE $y \gets 1$
+  \IF{$n < 0$}
+  \STATE $X \gets 1 / x$
+  \STATE $N \gets -n$
+  \ELSE
+  \STATE $X \gets x$
+  \STATE $N \gets n$
+  \ENDIF
+  \WHILE{$N \neq 0$}
+  \IF{$N$ is even}
+  \STATE $X \gets X \times X$
+  \STATE $N \gets N / 2$
+  \ELSE[$N$ is odd]
+  \STATE $y \gets y \times X$
+  \STATE $N \gets N - 1$
+  \ENDIF
+  \ENDWHILE
+  \end{algorithmic}
+\end{algorithm}
+
+\id{key-word}
+\proc{Insert-Sort}
+\const{true}
+\func{out-degree}
+$A.\id{len}$
+\attrib{A}{len}
+\attribxx{A}{len}
+$A[1 \twodots n]$
+
+$i \gets j - 1$
+
+$i = j - 1$
+
+$\id{high} \isequal \id{low} $
+
+$high == low$
+
 
 % 第一段，细化定义介绍、细化算法的重要性，举例
 Thinning is the process of reducing the thickness of each line of patterns to just a single pixel. Thinning is an important pre-processing step for many image analysis operation, such as image processing, character recognition, pattern recognition and so on.
