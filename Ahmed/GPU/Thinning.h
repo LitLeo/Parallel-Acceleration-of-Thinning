@@ -46,6 +46,7 @@ public:
     __host__ int thinAhmedPt(Image *inimg, Image *outimg);
     __host__ int thinAhmedPtShared(Image *inimg, Image *outimg);
     __host__ int thinAhmedPtConstant(Image *inimg, Image *outimg);
+    __host__ int thinAhmedPtTexture(Image *inimg, Image *outimg);
 };
 
 #endif
