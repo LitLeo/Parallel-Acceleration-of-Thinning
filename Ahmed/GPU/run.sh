@@ -1,6 +1,7 @@
 #!/bin/bash
-exe="okanoexec"
-imgdir="img"
+make -j8
+exe="thinexec"
+imgdir="../../img"
 imgs=`ls $imgdir`
 
 for img in $imgs; do

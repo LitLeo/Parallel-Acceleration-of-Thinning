@@ -4,7 +4,7 @@
 #include "Image.h"
 using namespace std;
 
-#define LOOP 100
+#define LOOP 50
 
 int main(int argc, char const **argv)
 {
@@ -27,6 +27,7 @@ int main(int argc, char const **argv)
         if(inimg->imgData[i] != 0)
             inimg->imgData[i] = 255;
     }
+    warmup();
 
     // get the device count
     int deviceCount = 0;
@@ -79,26 +80,25 @@ int main(int argc, char const **argv)
             cudaEvent_t start, stop;
             float runTime;
 
-            // // 直接并行
-            // cudaEventCreate(&start);
-            // cudaEventCreate(&stop);
-            // cudaEventRecord(start, 0);
-            // for (int i = 0; i < LOOP; i++) 
-            //    thin_gpu.thinAhmed(inimg, outimg1);
-            // cudaEventRecord(stop, 0);
-            // cudaEventSynchronize(stop);
-            // cudaEventElapsedTime(&runTime, start, stop);
-            // cout << "thinAhmed() time is " << (runTime) / LOOP << " ms" << endl;
-            // ImageBasicOp::copyToHost(outimg1);
-            // ImageBasicOp::writeToFile("thinAhmed_outimg.bmp", outimg1); 
-
+            // 直接并行
+            cudaEventCreate(&start);
+            cudaEventCreate(&stop);
+            cudaEventRecord(start, 0);
+            for (int i = 0; i < LOOP; i++) 
+               thin_gpu.thinAhmed(inimg, outimg1);
+            cudaEventRecord(stop, 0);
+            cudaEventSynchronize(stop);
+            cudaEventElapsedTime(&runTime, start, stop);
+            cout << "thinAhmed() time is " << (runTime) / LOOP << " ms" << endl;
+            ImageBasicOp::copyToHost(outimg1);
+            ImageBasicOp::writeToFile("thinAhmed_outimg.bmp", outimg1); 
             // Pattern 表法，Pattern位于 global 内存
             cudaEventCreate(&start);
             cudaEventCreate(&stop);
             // float runTime;
             cudaEventRecord(start, 0);
             for (int i = 0; i < LOOP; i++) 
-                thin_gpu.thinAhmedPt(inimg, outimg2);
+               thin_gpu.thinAhmedPt(inimg, outimg2);
             cudaEventRecord(stop, 0);
             cudaEventSynchronize(stop);
             cudaEventElapsedTime(&runTime, start, stop);
@@ -106,44 +106,44 @@ int main(int argc, char const **argv)
             ImageBasicOp::copyToHost(outimg2);
             ImageBasicOp::writeToFile("thinAhmedPt_outimg.bmp", outimg2); 
 
-            // 直接并行,一个线程处理四个点
-            cudaEventCreate(&start);
-            cudaEventCreate(&stop);
-            cudaEventRecord(start, 0);
-            for (int i = 0; i < LOOP; i++) 
-                thin_gpu.thinAhmedPtShared(inimg, outimg4);
-            cudaEventRecord(stop, 0);
-            cudaEventSynchronize(stop);
-            cudaEventElapsedTime(&runTime, start, stop);
-            cout << "thinAhmedPtShared() time is " << (runTime) / LOOP << " ms" << endl;
-            ImageBasicOp::copyToHost(outimg4);
-            ImageBasicOp::writeToFile("thinAhmedPtShared_outimg.bmp", outimg4); 
+            // // 直接并行,一个线程处理四个点
+            // cudaEventCreate(&start);
+            // cudaEventCreate(&stop);
+            // cudaEventRecord(start, 0);
+            // for (int i = 0; i < LOOP; i++) 
+            //     thin_gpu.thinAhmedPtShared(inimg, outimg4);
+            // cudaEventRecord(stop, 0);
+            // cudaEventSynchronize(stop);
+            // cudaEventElapsedTime(&runTime, start, stop);
+            // cout << "thinAhmedPtShared() time is " << (runTime) / LOOP << " ms" << endl;
+            // ImageBasicOp::copyToHost(outimg4);
+            // ImageBasicOp::writeToFile("thinAhmedPtShared_outimg.bmp", outimg4); 
 
-            // Pattern 表法，Pattern位于常量内存,一个线程处理四个点
-            cudaEventCreate(&start);
-            cudaEventCreate(&stop);
-            cudaEventRecord(start, 0);
-            for (int i = 0; i < LOOP; i++) 
-                thin_gpu.thinAhmedPtConstant(inimg, outimg5);
-            cudaEventRecord(stop, 0);
-            cudaEventSynchronize(stop);
-            cudaEventElapsedTime(&runTime, start, stop);
-            cout << "thinAhmedPtConstant() time is " << (runTime) / LOOP << " ms" << endl;
-            ImageBasicOp::copyToHost(outimg5);
-            ImageBasicOp::writeToFile("thinAhmedPtConstant_outimg.bmp", outimg5); 
+            // // Pattern 表法，Pattern位于常量内存,一个线程处理四个点
+            // cudaEventCreate(&start);
+            // cudaEventCreate(&stop);
+            // cudaEventRecord(start, 0);
+            // for (int i = 0; i < LOOP; i++) 
+            //     thin_gpu.thinAhmedPtConstant(inimg, outimg5);
+            // cudaEventRecord(stop, 0);
+            // cudaEventSynchronize(stop);
+            // cudaEventElapsedTime(&runTime, start, stop);
+            // cout << "thinAhmedPtConstant() time is " << (runTime) / LOOP << " ms" << endl;
+            // ImageBasicOp::copyToHost(outimg5);
+            // ImageBasicOp::writeToFile("thinAhmedPtConstant_outimg.bmp", outimg5); 
 
-            // Pattern 表法，Pattern位于纹理内存内存
-            cudaEventCreate(&start);
-            cudaEventCreate(&stop);
-            cudaEventRecord(start, 0);
-            for (int i = 0; i < LOOP; i++) 
-                thin_gpu.thinAhmedPtTexture(inimg, outimg6);
-            cudaEventRecord(stop, 0);
-            cudaEventSynchronize(stop);
-            cudaEventElapsedTime(&runTime, start, stop);
-            cout << "thinAhmedPtTexture() time is " << (runTime) / LOOP << " ms" << endl;
-            ImageBasicOp::copyToHost(outimg6);
-            ImageBasicOp::writeToFile("thinAhmedPtTexture_outimg.bmp", outimg6); 
+            // // Pattern 表法，Pattern位于纹理内存内存
+            // cudaEventCreate(&start);
+            // cudaEventCreate(&stop);
+            // cudaEventRecord(start, 0);
+            // for (int i = 0; i < LOOP; i++) 
+            //     thin_gpu.thinAhmedPtTexture(inimg, outimg6);
+            // cudaEventRecord(stop, 0);
+            // cudaEventSynchronize(stop);
+            // cudaEventElapsedTime(&runTime, start, stop);
+            // cout << "thinAhmedPtTexture() time is " << (runTime) / LOOP << " ms" << endl;
+            // ImageBasicOp::copyToHost(outimg6);
+            // ImageBasicOp::writeToFile("thinAhmedPtTexture_outimg.bmp", outimg6); 
 
             
             

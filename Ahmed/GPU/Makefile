@@ -1,10 +1,9 @@
-#此makefile对应的代码结构应为Image.cu, Image.h, main.cu，编译时请删除本行。
-ALGNAMES := Image 
+ALGNAMES := Image Thinning ErrorCode
 			
 INCFILES := $(addsuffix .h, $(ALGNAMES))
 OBJFILES := main.o $(addsuffix .o, $(ALGNAMES))
 
-EXEFILE  := exec
+EXEFILE  := thinexec
 
 NVCCCMD  := nvcc
 NVCCFLAG := -arch=sm_20
