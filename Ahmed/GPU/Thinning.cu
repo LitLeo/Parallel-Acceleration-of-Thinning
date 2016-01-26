@@ -286,6 +286,10 @@ static __global__ void _thinAhmedPtKer(ImageCuda tempimg, ImageCuda outimg,
 
     // 如果目标像素点的像素值为低像素, 则不进行细化处理。
     if (isHigh1(*outptr)) {
+        if (tempimg.imgMeta.imgData[curpos] == LOW){
+            outimg.imgMeta.imgData[curpos] = LOW;
+            return;
+        }
         x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
         x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
         x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
@@ -387,8 +391,8 @@ __host__ int Thinning::thinAhmedPt(Image *inimg, Image *outimg)
     if (cudaerrcode != cudaSuccess) 
         return CUDA_ERROR;
 
-    // 记录细化点数的变量，位于 host 端。
-    int changeCount;
+    // 记录细化点数的变量，迭代次数，位于 host 端。
+    int changeCount, iteration;
 
     // 记录细化点数的变量，位于 device 端。并为其申请空间。
     cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
@@ -442,6 +446,17 @@ __host__ int Thinning::thinAhmedPt(Image *inimg, Image *outimg)
     // 赋值为 1，以便开始第一次迭代。
     changeCount = 1;
 
+    // 迭代次数，为了计算滚动的状态
+    iteration = 0;
+
+    // copy ouimg to tempimg 
+     cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                  outimg->imgData, outsubimgCud.deviceId, 
+                                  outsubimgCud.pitchBytes * outimg->height);
+    
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
     // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
     // 停止迭代。 
     while (changeCount > 0) {
@@ -454,22 +469,24 @@ __host__ int Thinning::thinAhmedPt(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
-        // copy ouimg to tempimg 
-         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
-                                      outimg->imgData, outsubimgCud.deviceId, 
-                                      outsubimgCud.pitchBytes * outimg->height);
-        
-         if (cudaerrcode != cudaSuccess) {
-             return CUDA_ERROR;
-         }
-            
-        // 调用核函数，开始第一步细化操作。
-        _thinAhmedPtKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount, dev_lut);
-        if (cudaGetLastError() != cudaSuccess) {
-            // 核函数出错，结束迭代函数，释放申请的变量空间。
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }    
+        // 如果已经进行了奇数次迭代，那么现在源图像是在outimg上，输出图像应该在tempsubimgCud上
+        if (iteration & 1){
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedPtKer<<<gridsize, blocksize>>>(outsubimgCud, tempsubimgCud, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+        }else{
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedPtKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+        }
         
         // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
         // 变量，进行迭代判断。
@@ -480,7 +497,15 @@ __host__ int Thinning::thinAhmedPt(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
+        iteration ++;
    }
+    // 如果进行了偶数次迭代,那么outimg现在在tempsubimgCud上，
+    // 把tempsubimgCud的内容拷贝到outimg指针的设备端内存中
+    if (!(iteration & 1)){
+         cudaerrcode = cudaMemcpyPeer(outimg->imgData, outsubimgCud.deviceId, 
+                                      tempimg->imgData, tempsubimgCud.deviceId, 
+                                      tempsubimgCud.pitchBytes * tempimg->height);
+    }
 
     // 细化结束后释放申请的变量空间。
     cudaFree(devchangecount);
