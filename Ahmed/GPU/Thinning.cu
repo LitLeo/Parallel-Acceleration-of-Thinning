@@ -27,7 +27,8 @@ using namespace std;
 
 #define LUT_SIZE 256
 
-static __global__ void _thinAhmedKer(ImageCuda tempimg, ImageCuda outimg, int *devchangecount)
+static __global__ void _thinAhmedKer(ImageCuda tempimg, ImageCuda outimg,
+        unsigned char* input_flag, unsigned char* output_flag, int *devchangecount)
 {
     // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -47,6 +48,7 @@ static __global__ void _thinAhmedKer(ImageCuda tempimg, ImageCuda outimg, int *d
     // 获取当前像素点在图像中的相对位置。
     // 从左上角第二行第二列开始计算。
     int curpos = (r) * outimg.pitchBytes + c ;
+    int flagpos = r * tempimg.imgMeta.width + c;
 
     // 获取当前像素点在图像中的绝对位置。
     outptr = outimg.imgMeta.imgData + curpos ;
@@ -54,6 +56,19 @@ static __global__ void _thinAhmedKer(ImageCuda tempimg, ImageCuda outimg, int *d
 
     // 如果目标像素点的像素值为低像素, 则不进行细化处理。
     if (isHigh1(*outptr)) {
+        // 如果在滚动数组中，发现上一轮发生了删点，说明此时实质上已经是Low了
+        // 因此刷新，并返回
+        if (isLow1(tempimg.imgMeta.imgData[curpos])){
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 因为该修改不属于本次迭代的修改，所以不修改changeCount
+            return;
+        }
+        // 如果上一轮的计算中，没有标志此像素点需要重新计算权值,
+        // 虽然像素值是High，仍然略过，因为本次迭代中已知它不会改变（被删）
+        // 也不会影响它的八邻域
+        if (isLow1(input_flag[flagpos])){
+            return;
+        }
         x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
         x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
         x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
@@ -82,6 +97,14 @@ static __global__ void _thinAhmedKer(ImageCuda tempimg, ImageCuda outimg, int *d
             if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
                 return ;
             } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
                        isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) 
@@ -104,6 +127,14 @@ static __global__ void _thinAhmedKer(ImageCuda tempimg, ImageCuda outimg, int *d
             if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
                 return ;
             } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
                        isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) 
@@ -133,6 +164,15 @@ static __global__ void _thinAhmedKer(ImageCuda tempimg, ImageCuda outimg, int *d
             ) {
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
         }       
     }
 }
@@ -151,10 +191,12 @@ __host__ int Thinning::thinAhmed(Image *inimg, Image *outimg)
 
     // 声明所有中间变量并初始化为空。
     Image *tempimg = NULL;
+    unsigned char *flag1 = NULL;
+    unsigned char* flag2 = NULL;
     int *devchangecount = NULL;
 
     // 记录细化点数的变量，位于 host 端。
-    int changeCount;
+    int changeCount, iteration;
 
     // 记录细化点数的变量，位于 device 端。并为其申请空间。
     cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
@@ -198,6 +240,16 @@ __host__ int Thinning::thinAhmed(Image *inimg, Image *outimg)
         return errcode;
     }
 
+    // 生成flag标志数组
+    errcode = cudaMalloc((void**)(&flag1), sizeof(unsigned char) *
+            inimg->width * inimg->height);
+    if (errcode != NO_ERROR)
+        return errcode;
+    errcode = cudaMalloc((void**)(&flag2), sizeof(unsigned char) *
+            outimg->width * outimg->height);
+    if (errcode != NO_ERROR)
+        return errcode;
+
     // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
     dim3 gridsize, blocksize;
     blocksize.x = DEF_BLOCK_X;
@@ -210,6 +262,31 @@ __host__ int Thinning::thinAhmed(Image *inimg, Image *outimg)
     // 赋值为 1，以便开始第一次迭代。
     changeCount = 1;
 
+    // 迭代次数，为了计算滚动的状态
+    iteration = 0;
+    
+    // copy ouimg to tempimg 
+     cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                  outimg->imgData, outsubimgCud.deviceId, 
+                                  outsubimgCud.pitchBytes * outimg->height);
+    
+    if (cudaerrcode != cudaSuccess) {
+        // FAIL_THIN_IMAGE_FREE;
+        return CUDA_ERROR;
+    }
+
+    // 初始的输入flag为全HIGH，保证所有点都会计算第一次
+    cudaerrcode = cudaMemset(flag1, HIGH, sizeof(unsigned char) * inimg->width * inimg->height);
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
+
+     // 第一轮的输出flag初值是全LOW
+    cudaerrcode = cudaMemset(flag2, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
+    
     // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
     // 停止迭代。 
     while (changeCount > 0) {
@@ -222,22 +299,41 @@ __host__ int Thinning::thinAhmed(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
-        // copy ouimg to tempimg 
-         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
-                                      outimg->imgData, outsubimgCud.deviceId, 
-                                      outsubimgCud.pitchBytes * outimg->height);
-        
-         if (cudaerrcode != cudaSuccess) {
-             return CUDA_ERROR;
-         }
-            
-        // 调用核函数，开始第一步细化操作。
-        _thinAhmedKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
-        if (cudaGetLastError() != cudaSuccess) {
-            // 核函数出错，结束迭代函数，释放申请的变量空间。
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }    
+        // 如果已经进行了奇数次迭代，那么现在源图像是在outimg上，输出图像应该在tempsubimgCud上
+        // flag标志数组此刻使用flag1作为输入标志，flag2作为输出标志
+        if (iteration & 1){
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedKer<<<gridsize, blocksize>>>(outsubimgCud, tempsubimgCud,
+                    flag2, flag1, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+            // 每次需要清空下次作为输出flag的数组（即本次迭代的输入flag)
+            // 因为每次迭代需要刷新的都是新的“最外一圈”，持续变化中
+            cudaerrcode = cudaMemset(flag2, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+            if (cudaerrcode != cudaSuccess) {
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }else{
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud,
+                    flag1, flag2, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+            // 每次需要清空下次作为输出flag的数组（即本次迭代的输入flag)
+            // 因为每次迭代需要刷新的都是新的“最外一圈”，持续变化中
+            cudaerrcode = cudaMemset(flag1, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+            if (cudaerrcode != cudaSuccess) {
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }
         
         // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
         // 变量，进行迭代判断。
@@ -248,12 +344,22 @@ __host__ int Thinning::thinAhmed(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
+        iteration ++;
    }
-
+    // 如果进行了偶数次迭代,那么outimg现在在tempsubimgCud上，
+    // 把tempsubimgCud的内容拷贝到outimg指针的设备端内存中
+    if (!(iteration & 1)){
+         cudaerrcode = cudaMemcpyPeer(outimg->imgData, outsubimgCud.deviceId, 
+                                      tempimg->imgData, tempsubimgCud.deviceId, 
+                                      tempsubimgCud.pitchBytes * tempimg->height);
+    }
+    
     // 细化结束后释放申请的变量空间。
     cudaFree(devchangecount);
     ImageBasicOp::deleteImage(tempimg);
-
+    cudaFree(flag1);
+    cudaFree(flag2);
+    
     return NO_ERROR;
 }
 
@@ -379,8 +485,8 @@ static __global__ void _thinAhmedPtKer(ImageCuda tempimg, ImageCuda outimg,
                   isHigh1(x5) * 16 + isHigh1(x6) * 32 + isHigh1(x7) * 64 + isHigh1(x8) * 128;
         
         if (dev_lut[index] == 1) {
-			outimg.imgMeta.imgData[curpos] = LOW;
-			*devchangecount = 1;
+            outimg.imgMeta.imgData[curpos] = LOW;
+            *devchangecount = 1;
             output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
             output_flag[flagpos - outimg.imgMeta.width] = HIGH;
             output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
@@ -593,9 +699,9 @@ __host__ int Thinning::thinAhmedPt(Image *inimg, Image *outimg)
     return NO_ERROR;
 }
 
-// GPU版本2，优化分支，使用Pattern表法，Pattern表位于global内存中
-static __global__ void _thinAhmedPtSharedKer(ImageCuda tempimg, ImageCuda outimg, 
-                                       int *devchangecount, unsigned char *dev_lut)
+// GPU版本2，优化分支，使用Pattern表法，Pattern表位于shared内存中
+static __global__ void _thinAhmedPtSharedKer(ImageCuda tempimg, ImageCuda outimg,
+        unsigned char* input_flag, unsigned char* output_flag, int *devchangecount, unsigned char *dev_lut)
 {
     // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -622,6 +728,7 @@ static __global__ void _thinAhmedPtSharedKer(ImageCuda tempimg, ImageCuda outimg
     // 获取当前像素点在图像中的相对位置。
     // 从左上角第二行第二列开始计算。
     int curpos = (r) * outimg.pitchBytes + c ;
+    int flagpos = r * tempimg.imgMeta.width + c;
 
     // 获取当前像素点在图像中的绝对位置。
     outptr = outimg.imgMeta.imgData + curpos ;
@@ -629,6 +736,19 @@ static __global__ void _thinAhmedPtSharedKer(ImageCuda tempimg, ImageCuda outimg
 
     // 如果目标像素点的像素值为低像素, 则不进行细化处理。
     if (isHigh1(*outptr)) {
+        // 如果在滚动数组中，发现上一轮发生了删点，说明此时实质上已经是Low了
+        // 因此刷新，并返回
+        if (isLow1(tempimg.imgMeta.imgData[curpos])){
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 因为该修改不属于本次迭代的修改，所以不修改changeCount
+            return;
+        }
+        // 如果上一轮的计算中，没有标志此像素点需要重新计算权值,
+        // 虽然像素值是High，仍然略过，因为本次迭代中已知它不会改变（被删）
+        // 也不会影响它的八邻域
+        if (isLow1(input_flag[flagpos])){
+            return;
+        }
         x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
         x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
         x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
@@ -657,6 +777,14 @@ static __global__ void _thinAhmedPtSharedKer(ImageCuda tempimg, ImageCuda outimg
             if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
                 return ;
             } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
                        isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) 
@@ -679,6 +807,14 @@ static __global__ void _thinAhmedPtSharedKer(ImageCuda tempimg, ImageCuda outimg
             if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
                 return ;
             } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
                        isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) 
@@ -694,6 +830,14 @@ static __global__ void _thinAhmedPtSharedKer(ImageCuda tempimg, ImageCuda outimg
         if (shared_lut[index] == 1) {
             outimg.imgMeta.imgData[curpos] = LOW;
             *devchangecount = 1;
+            output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+            output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+            output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+            output_flag[flagpos - 1] = HIGH;
+            output_flag[flagpos + 1] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
         }       
     }
 }
@@ -710,6 +854,8 @@ __host__ int Thinning::thinAhmedPtShared(Image *inimg, Image *outimg)
 
     // 声明所有中间变量并初始化为空。
     Image *tempimg = NULL;
+    unsigned char *flag1 = NULL;
+    unsigned char *flag2 = NULL;
     int *devchangecount = NULL;
     unsigned char *dev_lut;
     unsigned char lut[256] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 
@@ -731,7 +877,7 @@ __host__ int Thinning::thinAhmedPtShared(Image *inimg, Image *outimg)
         return CUDA_ERROR;
 
     // 记录细化点数的变量，位于 host 端。
-    int changeCount;
+    int changeCount, iteration;
 
     // 记录细化点数的变量，位于 device 端。并为其申请空间。
     cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
@@ -775,6 +921,16 @@ __host__ int Thinning::thinAhmedPtShared(Image *inimg, Image *outimg)
         return errcode;
     }
 
+    // 生成flag标志数组
+    errcode = cudaMalloc((void**)(&flag1), sizeof(unsigned char) *
+            inimg->width * inimg->height);
+    if (errcode != NO_ERROR)
+        return errcode;
+    errcode = cudaMalloc((void**)(&flag2), sizeof(unsigned char) *
+            outimg->width * outimg->height);
+    if (errcode != NO_ERROR)
+        return errcode;
+
     // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
     dim3 gridsize, blocksize;
     blocksize.x = DEF_BLOCK_X;
@@ -784,6 +940,31 @@ __host__ int Thinning::thinAhmedPtShared(Image *inimg, Image *outimg)
 
     // 赋值为 1，以便开始第一次迭代。
     changeCount = 1;
+
+    // 迭代次数，为了计算滚动的状态
+    iteration = 0;
+
+    // copy ouimg to tempimg 
+     cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                  outimg->imgData, outsubimgCud.deviceId, 
+                                  outsubimgCud.pitchBytes * outimg->height);
+    
+    if (cudaerrcode != cudaSuccess) {
+        // FAIL_THIN_IMAGE_FREE;
+        return CUDA_ERROR;
+    }
+
+    // 初始的输入flag为全HIGH，保证所有点都会计算第一次
+    cudaerrcode = cudaMemset(flag1, HIGH, sizeof(unsigned char) * inimg->width * inimg->height);
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
+
+     // 第一轮的输出flag初值是全LOW
+    cudaerrcode = cudaMemset(flag2, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
 
     // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
     // 停止迭代。 
@@ -797,22 +978,41 @@ __host__ int Thinning::thinAhmedPtShared(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
-        // copy ouimg to tempimg 
-         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
-                                      outimg->imgData, outsubimgCud.deviceId, 
-                                      outsubimgCud.pitchBytes * outimg->height);
-        
-         if (cudaerrcode != cudaSuccess) {
-             return CUDA_ERROR;
-         }
-            
-        // 调用核函数，开始第一步细化操作。
-        _thinAhmedPtSharedKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount, dev_lut);
-        if (cudaGetLastError() != cudaSuccess) {
-            // 核函数出错，结束迭代函数，释放申请的变量空间。
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }    
+        // 如果已经进行了奇数次迭代，那么现在源图像是在outimg上，输出图像应该在tempsubimgCud上
+        // flag标志数组此刻使用flag1作为输入标志，flag2作为输出标志
+        if (iteration & 1){
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedPtSharedKer<<<gridsize, blocksize>>>(outsubimgCud, tempsubimgCud,
+                    flag2, flag1, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+            // 每次需要清空下次作为输出flag的数组（即本次迭代的输入flag)
+            // 因为每次迭代需要刷新的都是新的“最外一圈”，持续变化中
+            cudaerrcode = cudaMemset(flag2, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+            if (cudaerrcode != cudaSuccess) {
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }else{
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedPtSharedKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud,
+                    flag1, flag2, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+            // 每次需要清空下次作为输出flag的数组（即本次迭代的输入flag)
+            // 因为每次迭代需要刷新的都是新的“最外一圈”，持续变化中
+            cudaerrcode = cudaMemset(flag1, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+            if (cudaerrcode != cudaSuccess) {
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }
         
         // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
         // 变量，进行迭代判断。
@@ -823,19 +1023,30 @@ __host__ int Thinning::thinAhmedPtShared(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
+        iteration ++;
    }
+    // 如果进行了偶数次迭代,那么outimg现在在tempsubimgCud上，
+    // 把tempsubimgCud的内容拷贝到outimg指针的设备端内存中
+    if (!(iteration & 1)){
+         cudaerrcode = cudaMemcpyPeer(outimg->imgData, outsubimgCud.deviceId, 
+                                      tempimg->imgData, tempsubimgCud.deviceId, 
+                                      tempsubimgCud.pitchBytes * tempimg->height);
+    }
 
     // 细化结束后释放申请的变量空间。
     cudaFree(devchangecount);
     ImageBasicOp::deleteImage(tempimg);
-
+    cudaFree(flag1);
+    cudaFree(flag2);
+    
     return NO_ERROR;
 }
 
 // 常量内存空间
 __constant__ unsigned char constant_lut[256];
 // GPU版本2，优化分支，使用Pattern表法，Pattern表位于global内存中
-static __global__ void _thinAhmedPtConstantKer(ImageCuda tempimg, ImageCuda outimg,  int *devchangecount)
+static __global__ void _thinAhmedPtConstantKer(ImageCuda tempimg, ImageCuda outimg,
+        unsigned char* input_flag, unsigned char* output_flag, int *devchangecount, unsigned char *dev_lut)
 {
     // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -855,6 +1066,7 @@ static __global__ void _thinAhmedPtConstantKer(ImageCuda tempimg, ImageCuda outi
     // 获取当前像素点在图像中的相对位置。
     // 从左上角第二行第二列开始计算。
     int curpos = (r) * outimg.pitchBytes + c ;
+    int flagpos = r * tempimg.imgMeta.width + c;
 
     // 获取当前像素点在图像中的绝对位置。
     outptr = outimg.imgMeta.imgData + curpos ;
@@ -862,6 +1074,19 @@ static __global__ void _thinAhmedPtConstantKer(ImageCuda tempimg, ImageCuda outi
 
     // 如果目标像素点的像素值为低像素, 则不进行细化处理。
     if (isHigh1(*outptr)) {
+        // 如果在滚动数组中，发现上一轮发生了删点，说明此时实质上已经是Low了
+        // 因此刷新，并返回
+        if (isLow1(tempimg.imgMeta.imgData[curpos])){
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 因为该修改不属于本次迭代的修改，所以不修改changeCount
+            return;
+        }
+        // 如果上一轮的计算中，没有标志此像素点需要重新计算权值,
+        // 虽然像素值是High，仍然略过，因为本次迭代中已知它不会改变（被删）
+        // 也不会影响它的八邻域
+        if (isLow1(input_flag[flagpos])){
+            return;
+        }
         x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
         x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
         x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
@@ -890,6 +1115,14 @@ static __global__ void _thinAhmedPtConstantKer(ImageCuda tempimg, ImageCuda outi
             if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
                 return ;
             } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
                        isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) 
@@ -912,6 +1145,14 @@ static __global__ void _thinAhmedPtConstantKer(ImageCuda tempimg, ImageCuda outi
             if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
                 return ;
             } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
                        isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) 
@@ -927,6 +1168,14 @@ static __global__ void _thinAhmedPtConstantKer(ImageCuda tempimg, ImageCuda outi
         if (constant_lut[index] == 1) {
             outimg.imgMeta.imgData[curpos] = LOW;
             *devchangecount = 1;
+            output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+            output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+            output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+            output_flag[flagpos - 1] = HIGH;
+            output_flag[flagpos + 1] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
         }       
     }
 }
@@ -943,6 +1192,8 @@ __host__ int Thinning::thinAhmedPtConstant(Image *inimg, Image *outimg)
 
     // 声明所有中间变量并初始化为空。
     Image *tempimg = NULL;
+    unsigned char *flag1 = NULL;
+    unsigned char *flag2 = NULL;
     int *devchangecount = NULL;
     // unsigned char *dev_lut;
     unsigned char lut[256] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 
@@ -968,7 +1219,7 @@ __host__ int Thinning::thinAhmedPtConstant(Image *inimg, Image *outimg)
         return CUDA_ERROR;
 
     // 记录细化点数的变量，位于 host 端。
-    int changeCount;
+    int changeCount, iteration;
 
     // 记录细化点数的变量，位于 device 端。并为其申请空间。
     cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
@@ -1012,6 +1263,16 @@ __host__ int Thinning::thinAhmedPtConstant(Image *inimg, Image *outimg)
         return errcode;
     }
 
+    // 生成flag标志数组
+    errcode = cudaMalloc((void**)(&flag1), sizeof(unsigned char) *
+            inimg->width * inimg->height);
+    if (errcode != NO_ERROR)
+        return errcode;
+    errcode = cudaMalloc((void**)(&flag2), sizeof(unsigned char) *
+            outimg->width * outimg->height);
+    if (errcode != NO_ERROR)
+        return errcode;
+    
     // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
     dim3 gridsize, blocksize;
     blocksize.x = DEF_BLOCK_X;
@@ -1021,6 +1282,31 @@ __host__ int Thinning::thinAhmedPtConstant(Image *inimg, Image *outimg)
 
     // 赋值为 1，以便开始第一次迭代。
     changeCount = 1;
+    
+    // 迭代次数，为了计算滚动的状态
+    iteration = 0;
+    
+    // copy ouimg to tempimg 
+     cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                  outimg->imgData, outsubimgCud.deviceId, 
+                                  outsubimgCud.pitchBytes * outimg->height);
+    
+    if (cudaerrcode != cudaSuccess) {
+        // FAIL_THIN_IMAGE_FREE;
+        return CUDA_ERROR;
+    }
+
+    // 初始的输入flag为全HIGH，保证所有点都会计算第一次
+    cudaerrcode = cudaMemset(flag1, HIGH, sizeof(unsigned char) * inimg->width * inimg->height);
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
+
+     // 第一轮的输出flag初值是全LOW
+    cudaerrcode = cudaMemset(flag2, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
 
     // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
     // 停止迭代。 
@@ -1034,22 +1320,41 @@ __host__ int Thinning::thinAhmedPtConstant(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
-        // copy ouimg to tempimg 
-         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
-                                      outimg->imgData, outsubimgCud.deviceId, 
-                                      outsubimgCud.pitchBytes * outimg->height);
-        
-         if (cudaerrcode != cudaSuccess) {
-             return CUDA_ERROR;
-         }
-            
-        // 调用核函数，开始第一步细化操作。
-        _thinAhmedPtConstantKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
-        if (cudaGetLastError() != cudaSuccess) {
-            // 核函数出错，结束迭代函数，释放申请的变量空间。
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }    
+        // 如果已经进行了奇数次迭代，那么现在源图像是在outimg上，输出图像应该在tempsubimgCud上
+        // flag标志数组此刻使用flag1作为输入标志，flag2作为输出标志
+        if (iteration & 1){
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedPtConstantKer<<<gridsize, blocksize>>>(outsubimgCud, tempsubimgCud,
+                    flag2, flag1, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+            // 每次需要清空下次作为输出flag的数组（即本次迭代的输入flag)
+            // 因为每次迭代需要刷新的都是新的“最外一圈”，持续变化中
+            cudaerrcode = cudaMemset(flag2, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+            if (cudaerrcode != cudaSuccess) {
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }else{
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedPtConstantKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud,
+                    flag1, flag2, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+            // 每次需要清空下次作为输出flag的数组（即本次迭代的输入flag)
+            // 因为每次迭代需要刷新的都是新的“最外一圈”，持续变化中
+            cudaerrcode = cudaMemset(flag1, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+            if (cudaerrcode != cudaSuccess) {
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }
         
         // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
         // 变量，进行迭代判断。
@@ -1060,17 +1365,28 @@ __host__ int Thinning::thinAhmedPtConstant(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
+        iteration ++;
    }
+    // 如果进行了偶数次迭代,那么outimg现在在tempsubimgCud上，
+    // 把tempsubimgCud的内容拷贝到outimg指针的设备端内存中
+    if (!(iteration & 1)){
+         cudaerrcode = cudaMemcpyPeer(outimg->imgData, outsubimgCud.deviceId, 
+                                      tempimg->imgData, tempsubimgCud.deviceId, 
+                                      tempsubimgCud.pitchBytes * tempimg->height);
+    }
 
     // 细化结束后释放申请的变量空间。
     cudaFree(devchangecount);
     ImageBasicOp::deleteImage(tempimg);
+    cudaFree(flag1);
+    cudaFree(flag2);
 
     return NO_ERROR;
 }
 
 texture<unsigned char, 1, cudaReadModeElementType> tex_lut;
-static __global__ void _thinAhmedPtTextureKer(ImageCuda tempimg, ImageCuda outimg,  int *devchangecount)
+static __global__ void _thinAhmedPtTextureKer(ImageCuda tempimg, ImageCuda outimg,
+        unsigned char* input_flag, unsigned char* output_flag, int *devchangecount, unsigned char *dev_lut)
 {
     // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -1090,6 +1406,7 @@ static __global__ void _thinAhmedPtTextureKer(ImageCuda tempimg, ImageCuda outim
     // 获取当前像素点在图像中的相对位置。
     // 从左上角第二行第二列开始计算。
     int curpos = (r) * outimg.pitchBytes + c ;
+    int flagpos = r * tempimg.imgMeta.width + c;
 
     // 获取当前像素点在图像中的绝对位置。
     outptr = outimg.imgMeta.imgData + curpos ;
@@ -1097,6 +1414,19 @@ static __global__ void _thinAhmedPtTextureKer(ImageCuda tempimg, ImageCuda outim
 
     // 如果目标像素点的像素值为低像素, 则不进行细化处理。
     if (isHigh1(*outptr)) {
+        // 如果在滚动数组中，发现上一轮发生了删点，说明此时实质上已经是Low了
+        // 因此刷新，并返回
+        if (isLow1(tempimg.imgMeta.imgData[curpos])){
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 因为该修改不属于本次迭代的修改，所以不修改changeCount
+            return;
+        }
+        // 如果上一轮的计算中，没有标志此像素点需要重新计算权值,
+        // 虽然像素值是High，仍然略过，因为本次迭代中已知它不会改变（被删）
+        // 也不会影响它的八邻域
+        if (isLow1(input_flag[flagpos])){
+            return;
+        }
         x1 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes - 1];
         x2 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes];
         x3 = tempimg.imgMeta.imgData[curpos - outimg.pitchBytes + 1];
@@ -1125,6 +1455,14 @@ static __global__ void _thinAhmedPtTextureKer(ImageCuda tempimg, ImageCuda outim
             if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
                 return ;
             } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
                        isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10)) 
@@ -1147,6 +1485,14 @@ static __global__ void _thinAhmedPtTextureKer(ImageCuda tempimg, ImageCuda outim
             if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
                 outimg.imgMeta.imgData[curpos] = LOW;
                 *devchangecount = 1;
+                output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+                output_flag[flagpos - 1] = HIGH;
+                output_flag[flagpos + 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+                output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
                 return ;
             } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
                        isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11)) 
@@ -1162,6 +1508,14 @@ static __global__ void _thinAhmedPtTextureKer(ImageCuda tempimg, ImageCuda outim
         if (tex1Dfetch(tex_lut, index) == 1) {
             outimg.imgMeta.imgData[curpos] = LOW;
             *devchangecount = 1;
+            output_flag[flagpos - outimg.imgMeta.width - 1] = HIGH;
+            output_flag[flagpos - outimg.imgMeta.width] = HIGH;
+            output_flag[flagpos - outimg.imgMeta.width + 1] = HIGH;
+            output_flag[flagpos - 1] = HIGH;
+            output_flag[flagpos + 1] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width - 1] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width] = HIGH;
+            output_flag[flagpos + outimg.imgMeta.width + 1] = HIGH;
         }       
     }
 }
@@ -1178,6 +1532,8 @@ __host__ int Thinning::thinAhmedPtTexture(Image *inimg, Image *outimg)
 
     // 声明所有中间变量并初始化为空。
     Image *tempimg = NULL;
+    unsigned char *flag1 = NULL;
+    unsigned char *flag2 = NULL;
     int *devchangecount = NULL;
     // unsigned char *dev_lut;
     unsigned char lut[256] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 
@@ -1206,7 +1562,7 @@ __host__ int Thinning::thinAhmedPtTexture(Image *inimg, Image *outimg)
     cudaBindTexture(0, tex_lut, dev_lut);
 
     // 记录细化点数的变量，位于 host 端。
-    int changeCount;
+    int changeCount, iteration;
 
     // 记录细化点数的变量，位于 device 端。并为其申请空间。
     cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
@@ -1250,6 +1606,16 @@ __host__ int Thinning::thinAhmedPtTexture(Image *inimg, Image *outimg)
         return errcode;
     }
 
+    // 生成flag标志数组
+    errcode = cudaMalloc((void**)(&flag1), sizeof(unsigned char) *
+            inimg->width * inimg->height);
+    if (errcode != NO_ERROR)
+        return errcode;
+    errcode = cudaMalloc((void**)(&flag2), sizeof(unsigned char) *
+            outimg->width * outimg->height);
+    if (errcode != NO_ERROR)
+        return errcode;
+
     // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
     dim3 gridsize, blocksize;
     blocksize.x = DEF_BLOCK_X;
@@ -1259,6 +1625,31 @@ __host__ int Thinning::thinAhmedPtTexture(Image *inimg, Image *outimg)
 
     // 赋值为 1，以便开始第一次迭代。
     changeCount = 1;
+
+    // 迭代次数，为了计算滚动的状态
+    iteration = 0;
+
+    // copy ouimg to tempimg 
+     cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
+                                  outimg->imgData, outsubimgCud.deviceId, 
+                                  outsubimgCud.pitchBytes * outimg->height);
+    
+    if (cudaerrcode != cudaSuccess) {
+        // FAIL_THIN_IMAGE_FREE;
+        return CUDA_ERROR;
+    }
+
+    // 初始的输入flag为全HIGH，保证所有点都会计算第一次
+    cudaerrcode = cudaMemset(flag1, HIGH, sizeof(unsigned char) * inimg->width * inimg->height);
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
+
+     // 第一轮的输出flag初值是全LOW
+    cudaerrcode = cudaMemset(flag2, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+     if (cudaerrcode != cudaSuccess) {
+         return CUDA_ERROR;
+     }
 
     // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
     // 停止迭代。 
@@ -1271,23 +1662,41 @@ __host__ int Thinning::thinAhmedPtTexture(Image *inimg, Image *outimg)
             // FAIL_THIN_IMAGE_FREE;
             return CUDA_ERROR;
         }
-
-        // copy ouimg to tempimg 
-         cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId, 
-                                      outimg->imgData, outsubimgCud.deviceId, 
-                                      outsubimgCud.pitchBytes * outimg->height);
-        
-         if (cudaerrcode != cudaSuccess) {
-             return CUDA_ERROR;
-         }
-            
-        // 调用核函数，开始第一步细化操作。
-        _thinAhmedPtTextureKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud, devchangecount);
-        if (cudaGetLastError() != cudaSuccess) {
-            // 核函数出错，结束迭代函数，释放申请的变量空间。
-            // FAIL_THIN_IMAGE_FREE;
-            return CUDA_ERROR;
-        }    
+        // 如果已经进行了奇数次迭代，那么现在源图像是在outimg上，输出图像应该在tempsubimgCud上
+        // flag标志数组此刻使用flag1作为输入标志，flag2作为输出标志
+        if (iteration & 1){
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedPtTextureKer<<<gridsize, blocksize>>>(outsubimgCud, tempsubimgCud,
+                    flag2, flag1, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+            // 每次需要清空下次作为输出flag的数组（即本次迭代的输入flag)
+            // 因为每次迭代需要刷新的都是新的“最外一圈”，持续变化中
+            cudaerrcode = cudaMemset(flag2, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+            if (cudaerrcode != cudaSuccess) {
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }else{
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedPtTextureKer<<<gridsize, blocksize>>>(tempsubimgCud, outsubimgCud,
+                    flag1, flag2, devchangecount, dev_lut);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }    
+            // 每次需要清空下次作为输出flag的数组（即本次迭代的输入flag)
+            // 因为每次迭代需要刷新的都是新的“最外一圈”，持续变化中
+            cudaerrcode = cudaMemset(flag1, LOW, sizeof(unsigned char) * outimg->width * outimg->height);
+            if (cudaerrcode != cudaSuccess) {
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }
         
         // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount 
         // 变量，进行迭代判断。
@@ -1298,12 +1707,22 @@ __host__ int Thinning::thinAhmedPtTexture(Image *inimg, Image *outimg)
             return CUDA_ERROR;
         }
 
+        iteration ++;
    }
+    // 如果进行了偶数次迭代,那么outimg现在在tempsubimgCud上，
+    // 把tempsubimgCud的内容拷贝到outimg指针的设备端内存中
+    if (!(iteration & 1)){
+         cudaerrcode = cudaMemcpyPeer(outimg->imgData, outsubimgCud.deviceId, 
+                                      tempimg->imgData, tempsubimgCud.deviceId, 
+                                      tempsubimgCud.pitchBytes * tempimg->height);
+    }
 
     // 细化结束后释放申请的变量空间。
     cudaFree(devchangecount);
     ImageBasicOp::deleteImage(tempimg);
-
+    cudaFree(flag1);
+    cudaFree(flag2);
+    
     return NO_ERROR;
 }
 
