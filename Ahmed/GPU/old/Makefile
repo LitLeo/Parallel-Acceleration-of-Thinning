@@ -1,6 +1,6 @@
-ALGNAMES := Image Thinning Common
+ALGNAMES := Image Thinning ErrorCode
 			
-INCFILES := ErrorCode.h timer.h $(addsuffix .h, $(ALGNAMES))
+INCFILES := $(addsuffix .h, $(ALGNAMES))
 OBJFILES := main.o $(addsuffix .o, $(ALGNAMES))
 
 EXEFILE  := thinexec

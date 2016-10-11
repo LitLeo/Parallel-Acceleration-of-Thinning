@@ -7,7 +7,7 @@
 
 #include "Image.h"
 #include "ErrorCode.h"
-#include "Common.h"
+
 class Thinning {
 
 protected:
@@ -43,9 +43,10 @@ public:
     }
 
     __host__ int thinAhmed(Image *inimg, Image *outimg);
-    __host__ int thinAhmedMultiGPU(Image *inimg, Image *outimg);
     __host__ int thinAhmedPt(Image *inimg, Image *outimg);
-    // __host__ int thinAhmedPtMultiGPU(Image *inimg, Image *outimg);
+    __host__ int thinAhmedPtShared(Image *inimg, Image *outimg);
+    __host__ int thinAhmedPtConstant(Image *inimg, Image *outimg);
+    __host__ int thinAhmedPtTexture(Image *inimg, Image *outimg);
 };
 
 #endif

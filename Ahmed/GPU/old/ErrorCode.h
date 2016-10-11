@@ -57,6 +57,8 @@
 // 它表示系统可断定是一个错误，但并不清楚错误的原因。
 #define UNKNOW_ERROR  -999
 
+// warmup 函数，用于计时时 warmup GPU，实际是一个 vector 相加
+void warmup();
 
 #endif
 
