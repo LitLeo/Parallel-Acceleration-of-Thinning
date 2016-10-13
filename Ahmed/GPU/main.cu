@@ -37,11 +37,11 @@ public:
 
 int main(int argc, char const **argv)
 {
-	// if(argc < 2)
-	// {
-	// 	cout << "Please input image!" << endl;
-	// 	return 0;
-	// }
+	if(argc < 2)
+	{
+		cout << "Please input image!" << endl;
+		return 0;
+	}
 
     Config config[2];
 	Image *inimg;
@@ -53,31 +53,46 @@ int main(int argc, char const **argv)
         cout << "error: " << errcode << endl;
         return 0; 
     }
-    cout << "image: " << argv[1] << endl;
+    // cout << "image: " << argv[1] << endl;
     for(int i = 0; i < inimg->width * inimg->height; i++) {
         if(inimg->imgData[i] != 0)
             inimg->imgData[i] = 255;
     }
 
-    // 给每一个设备进行warmup
-    int deviceCount = 0;
-    cudaGetDeviceCount(&deviceCount);
-    for(unsigned i = 0; i < deviceCount; ++i)
-        warmup();
-
+    /*共享内存测试*/
     Thinning thin_gpu;
     Image *outimg1;
     ImageBasicOp::newImage(&outimg1);
     ImageBasicOp::makeAtHost(outimg1, inimg->width, inimg->height);
-    
-    StartTimer();
     for (int i = 0; i < LOOP; i++) 
-       thin_gpu.thinAhmedMultiGPU(inimg, outimg1);
+       thin_gpu.thinAhmed(inimg, outimg1);
     cout << "thinAhmed() time is " << GetTimer() / LOOP << " ms" << endl;
     /*config[0].update(runTime/LOOP, thin_gpu.DEF_BLOCK_X, thin_gpu.DEF_BLOCK_Y);*/
     ImageBasicOp::copyToHost(outimg1);
     ImageBasicOp::writeToFile("thinAhmed_outimg.bmp", outimg1); 
     ImageBasicOp::deleteImage(outimg1);
+
+    return 0;
+
+    // // 给每一个设备进行warmup
+    // int deviceCount = 0;
+    // cudaGetDeviceCount(&deviceCount);
+    // for(unsigned i = 0; i < deviceCount; ++i)
+    //     warmup();
+
+    // Thinning thin_gpu;
+    // Image *outimg1;
+    // ImageBasicOp::newImage(&outimg1);
+    // ImageBasicOp::makeAtHost(outimg1, inimg->width, inimg->height);
+    
+    // StartTimer();
+    // for (int i = 0; i < LOOP; i++) 
+    //    thin_gpu.thinAhmedMultiGPU(inimg, outimg1);
+    // cout << "thinAhmed() time is " << GetTimer() / LOOP << " ms" << endl;
+    // /*config[0].update(runTime/LOOP, thin_gpu.DEF_BLOCK_X, thin_gpu.DEF_BLOCK_Y);*/
+    // ImageBasicOp::copyToHost(outimg1);
+    // ImageBasicOp::writeToFile("thinAhmed_outimg.bmp", outimg1); 
+    // ImageBasicOp::deleteImage(outimg1);
 
     // for (int dev = 0; dev < 1; ++dev) {
     //     cudaSetDevice(dev);

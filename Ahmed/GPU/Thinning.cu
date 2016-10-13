@@ -462,7 +462,7 @@ __host__ int Thinning::thinAhmedMultiGPU(Image *inimg, Image *outimg)
         // 将d_outimg拷贝到h_outimg中
         checkCudaErrors(cudaMemcpy2DAsync (h_outsubimgCud[i].imgMeta.imgData, h_outsubimgCud[i].pitchBytes,
                                     d_outsubimgCud[i].imgMeta.imgData, d_outsubimgCud[i].pitchBytes,
-                                    d_outsubimgCud[i].width * sizeof (unsigned char),
+                                    d_outsubimgCud[i].imgMeta.width * sizeof (unsigned char),
                                     d_outsubimgCud[i].imgMeta.height,
                                     cudaMemcpyHostToDevice, stream[i]));
         cudaFree(tempsubimgCud[i].imgMeta.imgData);
@@ -481,148 +481,9 @@ __host__ int Thinning::thinAhmedMultiGPU(Image *inimg, Image *outimg)
     return NO_ERROR;
 }
 
-// 共享内存优化版本，Pattern表位于global内存中
-static __global__ void _thinAhmedSharedKer(ImageCuda tempimg, ImageCuda outimg,
-                                       int *devchangecount, unsigned char *dev_lut,
-                                       unsigned s_size)
-{
-    // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
-    // column，r 表示 row ）。
-    int c = blockIdx.x * blockDim.x + threadIdx.x;
-    int r = blockIdx.y * blockDim.y + threadIdx.y;
-
-    // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
-    // 另一方面防止由于段错误导致程序崩溃。
-    // 两边各有两个点不处理。
-    if (c >= outimg.imgMeta.width - 2 ||
-         r >= outimg.imgMeta.height - 2 || c < 2 || r < 2)
-        return;
-
-    // 定义目标点位置的指针。
-    unsigned char *outptr;
-
-    // 获取当前像素点在图像中的相对位置。
-    // 从左上角第二行第二列开始计算。
-    int curpos = (r) * outimg.pitchBytes + c ;
-
-    // 获取当前像素点在图像中的绝对位置。
-    outptr = outimg.imgMeta.imgData + curpos ;
-
-    // 如果目标像素点的像素值为低像素, 则不进行细化处理。
-    if (isHigh1(*outptr)) {
-        // 如果在滚动数组中，发现上一轮发生了删点，说明此时实质上已经是Low了
-        // 因此刷新，并返回
-        if (isLow1(tempimg.imgMeta.imgData[curpos])){
-            outimg.imgMeta.imgData[curpos] = LOW;
-            // 因为该修改不属于本次迭代的修改，所以不修改changeCount
-            return;
-        }
-
-        // 线程在线程块内的相对坐标
-        int thread_index = threadIdx.x + threadIdx.y * blockDim.x;
-        // 线程块大小
-        int block_size = blockDim.x * blockDim.y;
-
-        // 对于AW细化算法，线程块所需共享内存的宽度为线程块宽度+4
-        int s_width = blockDim.x + 4;
-
-        int idx_of_thread_in_shared = threadIdx.x + 1 + (threadIdx.y + 1) * blockDim.x;
-
-        // 共享内存申请和拷贝
-        extern __shared__ unsigned char s_imgData[];
-        s_imgData[thread_index] = tempimg.imgMeta.imgData[r - 1 + thread_index / s_width
-                                  * outimg.pitchBytes + c - 1 + thread_index % s_width];
-
-        int next_thread_index = thread_index + block_size;
-        if(next_thread_index < s_size) {
-            s_imgData[next_thread_index] = tempimg.imgMeta.imgData[r - 1 + next_thread_index / s_width
-                                  * outimg.pitchBytes + c - 1 + next_thread_index % s_width];
-        }
-        __syncthreads();
-
-        // 共享内存拷贝数据判断
-        if(threadIdx.x * threadIdx.y  == 0) {
-            for(unsigned w = 0; w < s_width; ++w) {
-                for(unsigned h = 0; h < s_width; ++h) {
-                    
-                }
-            }
-        }
-
-        unsigned char x1, x2, x3, x4, x5, x6, x7, x8;
-        x1 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width - 1];
-        x2 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width];
-        x3 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width + 1];
-        x4 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - 1];
-        x5 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + 1];
-        x6 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width - 1];
-        x7 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width];
-        x8 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width + 1];
-        unsigned char x9,x10,x11;
-        if(isHigh1(x7)) {
-            x9 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width * 2 - 1];
-            x10 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width * 2];
-            x11 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width * 2 + 1];
-
-            if (isHigh5(x4,x5,x6,x7,x8) && isLow2(x2,x10) ||
-                isHigh3(x6,x7,x9) && isLow8(x1,x2,x3,x4,x5,x8,x10,x11) ||
-                isHigh3(x7,x8,x11) && isLow8(x1,x2,x3,x4,x5,x6,x9,x10))
-                    return ;
-        }
-        if(isHigh1(x2)) {
-            // w is down
-            x9 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width * 2 - 1];
-            x10 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width * 2];
-            x11 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width * 2 + 1];
-
-            if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
-                return ;
-            } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
-                       isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10))
-                return ;
-        }
-        if(isHigh1(x5)) {
-            x9 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width + 2];
-            x10 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + 2];
-            x11 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width + 2];
-
-            if (isHigh5(x2,x3,x5,x7,x8) && isLow2(x4,x10) ||
-                isHigh3(x5,x8,x11) && isLow8(x1,x2,x3,x4,x6,x7,x9,x10) ||
-                isHigh3(x3,x5,x9) && isLow8(x1,x2,x4,x6,x7,x8,x10,x11))
-                return ;
-        }
-        if(isHigh1(x4)){
-            x9 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width - 2];
-            x10 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - 2];
-            x11 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width - 2];
-            if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
-                outimg.imgMeta.imgData[curpos] = LOW;
-                *devchangecount = 1;
-                return ;
-            } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
-                       isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11))
-                return ;
-        }
-
-        // 1   2   4
-        // 8       16
-        // 32  64  128
-        unsigned char index = isHigh1(x1) * 1 + isHigh1(x2) * 2 + isHigh1(x3) * 4 + isHigh1(x4) * 8 +
-                  isHigh1(x5) * 16 + isHigh1(x6) * 32 + isHigh1(x7) * 64 + isHigh1(x8) * 128;
-
-        if (dev_lut[index] == 1) {
-            outimg.imgMeta.imgData[curpos] = LOW;
-            *devchangecount = 1;
-        }
-    }
-}
-
 // GPU版本2，优化分支，使用Pattern表法，Pattern表位于global内存中
 static __global__ void _thinAhmedPtKer(ImageCuda tempimg, ImageCuda outimg,
-                                       int *devchangecount, unsigned char *dev_lut,
-                                       unsigned s_size)
+                                       int *devchangecount, unsigned char *dev_lut)
 {
     // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
     // column，r 表示 row ）。
@@ -724,6 +585,8 @@ static __global__ void _thinAhmedPtKer(ImageCuda tempimg, ImageCuda outimg,
         }
     }
 }
+
+
 
 __host__ int Thinning::thinAhmedPt(Image *inimg, Image *outimg)
 {
@@ -883,3 +746,329 @@ __host__ int Thinning::thinAhmedPt(Image *inimg, Image *outimg)
     ImageBasicOp::deleteImage(tempimg);
     return NO_ERROR;
 }
+
+
+/*
+// 共享内存优化版本，Pattern表位于global内存中
+static __global__ void _thinAhmedSharedKer(ImageCuda tempimg, ImageCuda outimg,
+                                       int *devchangecount, unsigned char *dev_lut,
+                                       unsigned s_size)
+{
+    // c 和 r 分别表示线程处理的像素点的坐标的 x 和 y 分量 （其中，c 表示
+    // column，r 表示 row ）。
+    int c = blockIdx.x * blockDim.x + threadIdx.x;
+    int r = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // 检查第一个像素点是否越界，如果越界，则不进行处理，一方面节省计算资源，
+    // 另一方面防止由于段错误导致程序崩溃。
+    // 两边各有两个点不处理。
+    if (c >= outimg.imgMeta.width - 2 ||
+         r >= outimg.imgMeta.height - 2 || c < 2 || r < 2)
+        return;
+
+    // 定义目标点位置的指针。
+    unsigned char *outptr;
+
+    // 获取当前像素点在图像中的相对位置。
+    // 从左上角第二行第二列开始计算。
+    int curpos = (r) * outimg.pitchBytes + c ;
+
+    // 获取当前像素点在图像中的绝对位置。
+    outptr = outimg.imgMeta.imgData + curpos ;
+
+    // 线程在线程块内的相对坐标
+    int thread_index = threadIdx.x + threadIdx.y * blockDim.x;
+    // 线程块大小
+    int block_size = blockDim.x * blockDim.y;
+
+    // 对于AW细化算法，线程块所需共享内存的宽度为线程块宽度+4
+    int s_width = blockDim.x + 2;
+
+    int idx_of_thread_in_shared = threadIdx.x + 1 + (threadIdx.y + 1) * blockDim.x;
+
+    unsigned char* block_pointer = tempimg.imgMeta.imgData + blockIdx.x * blockDim.x +
+                                   blockIdx.y * blockDim.y;
+
+    // 共享内存申请和拷贝
+    extern __shared__ unsigned char s_imgData[];
+
+    for(unsigned k = thread_index; k < s_size; k += block_size) {
+        int i = k / s_width;
+        int j = k % s_width;
+
+        s_imgData[k] = block_pointer[i * outimg.pitchBytes + j];
+    }
+    __syncthreads();
+
+     // 共享内存拷贝数据判断
+    if(threadIdx.x == 31 && threadIdx.y  == 7) {
+        // for(unsigned w = 0; w < s_width; ++w) {
+            // for(unsigned h = 0; h < s_width + 2; ++h) {
+            //     if(s_imgData[h * s_width + w] != block_pointer[h * outimg.pitchBytes + w]) {
+            //         printf("shared copy failed! id = %d\n", h * s_width + w);
+            //         break;
+            //     }
+            // }
+            for(unsigned i = 0; i < s_size; ++i) {
+                printf("%d ", s_imgData[i]);
+            }
+            printf("\n");
+            printf("\n");
+            printf("\n");
+        // }
+    }
+    return ;
+
+    // 如果目标像素点的像素值为低像素, 则不进行细化处理。
+    if (isHigh1(*outptr)) {
+        // 如果在滚动数组中，发现上一轮发生了删点，说明此时实质上已经是Low了
+        // 因此刷新，并返回
+        if (isLow1(tempimg.imgMeta.imgData[curpos])){
+            outimg.imgMeta.imgData[curpos] = LOW;
+            // 因为该修改不属于本次迭代的修改，所以不修改changeCount
+            return;
+        }
+
+        // s_imgData[thread_index] = tempimg.imgMeta.imgData[r - 1 + thread_index / s_width
+        //                           * outimg.pitchBytes + c - 1 + thread_index % s_width];
+
+        // int next_thread_index = thread_index + block_size;
+        // if(next_thread_index < s_size) {
+        //     s_imgData[next_thread_index] = tempimg.imgMeta.imgData[r - 1 + next_thread_index / s_width
+        //                           * outimg.pitchBytes + c - 1 + next_thread_index % s_width];
+        // }
+
+        unsigned char x1, x2, x3, x4, x5, x6, x7, x8;
+        x1 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width - 1];
+        x2 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width];
+        x3 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width + 1];
+        x4 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - 1];
+        x5 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + 1];
+        x6 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width - 1];
+        x7 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width];
+        x8 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width + 1];
+        unsigned char x9,x10,x11;
+        if(isHigh1(x7)) {
+            x9 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width * 2 - 1];
+            x10 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width * 2];
+            x11 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width * 2 + 1];
+
+            if (isHigh5(x4,x5,x6,x7,x8) && isLow2(x2,x10) ||
+                isHigh3(x6,x7,x9) && isLow8(x1,x2,x3,x4,x5,x8,x10,x11) ||
+                isHigh3(x7,x8,x11) && isLow8(x1,x2,x3,x4,x5,x6,x9,x10))
+                    return ;
+        }
+        if(isHigh1(x2)) {
+            // w is down
+            x9 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width * 2 - 1];
+            x10 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width * 2];
+            x11 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width * 2 + 1];
+
+            if (isHigh5(x1,x2,x3,x4,x5) && isLow2(x7,x10)){
+                outimg.imgMeta.imgData[curpos] = LOW;
+                *devchangecount = 1;
+                return ;
+            } else if (isHigh3(x1,x2,x9) && isLow8(x3,x4,x5,x6,x7,x8,x10,x11) ||
+                       isHigh3(x2,x3,x11) && isLow8(x1,x4,x5,x6,x7,x8,x9,x10))
+                return ;
+        }
+        if(isHigh1(x5)) {
+            x9 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width + 2];
+            x10 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + 2];
+            x11 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width + 2];
+
+            if (isHigh5(x2,x3,x5,x7,x8) && isLow2(x4,x10) ||
+                isHigh3(x5,x8,x11) && isLow8(x1,x2,x3,x4,x6,x7,x9,x10) ||
+                isHigh3(x3,x5,x9) && isLow8(x1,x2,x4,x6,x7,x8,x10,x11))
+                return ;
+        }
+        if(isHigh1(x4)){
+            x9 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - s_width - 2];
+            x10 = tempimg.imgMeta.imgData[idx_of_thread_in_shared - 2];
+            x11 = tempimg.imgMeta.imgData[idx_of_thread_in_shared + s_width - 2];
+            if (isHigh5(x1,x2,x4,x6,x7) && isLow2(x5,x10)){
+                outimg.imgMeta.imgData[curpos] = LOW;
+                *devchangecount = 1;
+                return ;
+            } else if (isHigh3(x4,x6,x11) && isLow8(x1,x2,x3,x5,x7,x8,x9,x10) ||
+                       isHigh3(x1,x4,x9) && isLow8(x2,x3,x5,x6,x7,x8,x10,x11))
+                return ;
+        }
+
+        // 1   2   4
+        // 8       16
+        // 32  64  128
+        unsigned char index = isHigh1(x1) * 1 + isHigh1(x2) * 2 + isHigh1(x3) * 4 + isHigh1(x4) * 8 +
+                  isHigh1(x5) * 16 + isHigh1(x6) * 32 + isHigh1(x7) * 64 + isHigh1(x8) * 128;
+
+        if (dev_lut[index] == 1) {
+            outimg.imgMeta.imgData[curpos] = LOW;
+            *devchangecount = 1;
+        }
+    }
+}
+
+__host__ int Thinning::thinAhmedShared(Image *inimg, Image *outimg)
+{
+ // 局部变量，错误码。
+    int errcode;
+    cudaError_t cudaerrcode;
+
+    // 检查输入图像，输出图像是否为空。
+    if (inimg == NULL || outimg == NULL)
+        return NULL_POINTER;
+
+    // 声明所有中间变量并初始化为空。
+    Image *tempimg = NULL;
+    int *devchangecount = NULL;
+    unsigned char *dev_lut;
+    unsigned char lut[256] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1,
+    0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1,
+    0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1,
+    1, 1, 0, 0, 1, 1, 0, 0 };
+
+    cudaerrcode = cudaMalloc((void **)&dev_lut, sizeof (unsigned char) * 256);
+    if (cudaerrcode != cudaSuccess)
+        return CUDA_ERROR;
+
+    cudaerrcode = cudaMemcpy(dev_lut, lut, sizeof(unsigned char) * 256, cudaMemcpyHostToDevice);
+    if (cudaerrcode != cudaSuccess)
+        return CUDA_ERROR;
+
+    // 记录细化点数的变量，迭代次数，位于 host 端。
+    int changeCount, iteration;
+
+    // 记录细化点数的变量，位于 device 端。并为其申请空间。
+    cudaerrcode = cudaMalloc((void **)&devchangecount, sizeof (int));
+    if (cudaerrcode != cudaSuccess) {
+        // FAIL_THIN_IMAGE_FREE;
+        return CUDA_ERROR;
+    }
+
+    // 生成暂存图像。
+    errcode = ImageBasicOp::newImage(&tempimg);
+    if (errcode != NO_ERROR)
+        return errcode;
+    errcode = ImageBasicOp::makeAtCurrentDevice(tempimg, inimg->width,
+                                                inimg->height);
+    if (errcode != NO_ERROR) {
+        // FAIL_THIN_IMAGE_FREE;
+        return errcode;
+    }
+
+    // 将输入图像 inimg 完全拷贝到输出图像 outimg ，并将 outimg 拷贝到
+    // device 端。
+    errcode = ImageBasicOp::copyToCurrentDevice(inimg, outimg);
+    if (errcode != NO_ERROR) {
+        // FAIL_THIN_IMAGE_FREE;
+        return errcode;
+    }
+
+    // 提取输出图像
+    ImageCuda outsubimgCud;
+    errcode = ImageBasicOp::roiSubImage(outimg, &outsubimgCud);
+    if (errcode != NO_ERROR) {
+        // FAIL_THIN_IMAGE_FREE;
+        return errcode;
+    }
+
+    // 提取暂存图像
+    ImageCuda tempsubimgCud;
+    errcode = ImageBasicOp::roiSubImage(tempimg, &tempsubimgCud);
+    if (errcode != NO_ERROR) {
+        // FAIL_THIN_IMAGE_FREE;
+        return errcode;
+    }
+
+    // 计算调用 Kernel 函数的线程块的尺寸和线程块的数量。
+    dim3 gridsize, blocksize;
+    blocksize.x = DEF_BLOCK_X;
+    blocksize.y = DEF_BLOCK_Y;
+    gridsize.x = (outsubimgCud.imgMeta.width + blocksize.x - 1) / blocksize.x;
+    gridsize.y = (outsubimgCud.imgMeta.height + blocksize.y - 1) / blocksize.y;
+
+    gridsize.x = 1;
+    gridsize.y = 1;
+
+    // 赋值为 1，以便开始第一次迭代。
+    changeCount = 1;
+
+    // 迭代次数，为了计算滚动的状态
+    iteration = 0;
+
+    int s_size = (blocksize.x + 2) * (blocksize.y + 4); 
+
+    // copy ouimg to tempimg
+    cudaerrcode = cudaMemcpyPeer(tempimg->imgData, tempsubimgCud.deviceId,
+                                  outimg->imgData, outsubimgCud.deviceId,
+                                  outsubimgCud.pitchBytes * outimg->height);
+
+    if (cudaerrcode != cudaSuccess) {
+        // FAIL_THIN_IMAGE_FREE;
+        return CUDA_ERROR;
+    }
+
+    // 开始迭代，当不可再被细化，即记录细化点数的变量 changeCount 的值为 0 时，
+    // 停止迭代。
+    while (changeCount > 0) {
+        // 将 host 端的变量赋值为 0 ，并将值拷贝到 device 端的 devchangecount。
+        changeCount = 0;
+        cudaerrcode = cudaMemcpy(devchangecount, &changeCount, sizeof (int),
+                                 cudaMemcpyHostToDevice);
+        if (cudaerrcode != cudaSuccess) {
+            // FAIL_THIN_IMAGE_FREE;
+            return CUDA_ERROR;
+        }
+
+        // 如果已经进行了奇数次迭代，那么现在源图像是在outimg上，输出图像应该在tempsubimgCud上
+        // flag标志数组此刻使用flag1作为输入标志，flag2作为输出标志
+        if (iteration & 1){
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedSharedKer<<<gridsize, blocksize, s_size>>>(outsubimgCud, tempsubimgCud,
+                                                     devchangecount, dev_lut, s_size);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }else{
+            // 调用核函数，开始第一步细化操作。
+            _thinAhmedSharedKer<<<gridsize, blocksize, s_size>>>(tempsubimgCud, outsubimgCud,
+                                                     devchangecount, dev_lut, s_size);
+            if (cudaGetLastError() != cudaSuccess) {
+                // 核函数出错，结束迭代函数，释放申请的变量空间。
+                // FAIL_THIN_IMAGE_FREE;
+                return CUDA_ERROR;
+            }
+        }
+
+        // 将位于 device 端的 devchangecount 拷贝到 host 端上的 changeCount
+        // 变量，进行迭代判断。
+        cudaerrcode = cudaMemcpy(&changeCount, devchangecount, sizeof (int),
+                                 cudaMemcpyDeviceToHost);
+        if (cudaerrcode != cudaSuccess) {
+            // FAIL_THIN_IMAGE_FREE;
+            return CUDA_ERROR;
+        }
+
+        iteration ++;
+   }
+    // 如果进行了偶数次迭代,那么outimg现在在tempsubimgCud上，
+    // 把tempsubimgCud的内容拷贝到outimg指针的设备端内存中
+    if (!(iteration & 1)){
+         cudaerrcode = cudaMemcpyPeer(outimg->imgData, outsubimgCud.deviceId,
+                                      tempimg->imgData, tempsubimgCud.deviceId,
+                                      tempsubimgCud.pitchBytes * tempimg->height);
+    }
+
+    // 细化结束后释放申请的变量空间。
+    cudaFree(devchangecount);
+    ImageBasicOp::deleteImage(tempimg);
+    return NO_ERROR;
+}
+*/

@@ -45,6 +45,8 @@ public:
     __host__ int thinAhmed(Image *inimg, Image *outimg);
     __host__ int thinAhmedMultiGPU(Image *inimg, Image *outimg);
     __host__ int thinAhmedPt(Image *inimg, Image *outimg);
+    // __host__ int thinAhmedShared(Image *inimg, Image *outimg);
+    
     // __host__ int thinAhmedPtMultiGPU(Image *inimg, Image *outimg);
 };
 
